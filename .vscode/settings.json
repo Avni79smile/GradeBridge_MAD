@@ -1,0 +1,26 @@
+{
+  "liveServer.settings.port": 5501,
+  "dart.flutterAdditionalArgs": [
+    "--verbose"
+  ],
+  "dart.hotReloadOnSave": true,
+  "dart.previewFlutterUiGuides": true,
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "Dart-Code.dart-code",
+  "[dart]": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "Dart-Code.dart-code",
+    "editor.formatOnPaste": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    ".dart_tool": true,
+    "build": true
+  },
+  "files.exclude": {
+    "**/.dart_tool": true,
+    "**/build": true,
+    "**/.flutter-plugins": true,
+    "**/.flutter-plugins-dependencies": true
+  }
+}
