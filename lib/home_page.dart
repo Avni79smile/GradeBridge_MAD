@@ -8,6 +8,8 @@ import 'pages/what_if_analysis_page.dart';
 import 'pages/settings_page.dart';
 import 'providers/calculation_history_provider.dart';
 import 'providers/theme_provider.dart';
+import 'providers/auth_provider.dart';
+import 'login_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -57,6 +59,601 @@ class _HomePageState extends State<HomePage>
     super.dispose();
   }
 
+  String _getCgpaStanding(double cgpa) {
+    if (cgpa >= 9.0) return 'Outstanding';
+    if (cgpa >= 8.0) return 'Excellent';
+    if (cgpa >= 7.0) return 'Very Good';
+    if (cgpa >= 6.0) return 'Good Standing';
+    if (cgpa >= 5.0) return 'Average';
+    if (cgpa >= 4.0) return 'Pass';
+    return 'Needs Improvement';
+  }
+
+  void _showProfileSheet(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    final isDark = themeProvider.isDarkMode;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => Consumer<AuthProvider>(
+        builder: (context, authProvider, _) {
+          final user = authProvider.currentUser;
+          return Container(
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
+            ),
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Handle bar
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white24 : Colors.black12,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                // Profile Avatar
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF00C9A7), Color(0xFF00D9B8)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF00C9A7).withAlpha(80),
+                        blurRadius: 20,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: Text(
+                      user?.name.isNotEmpty == true
+                          ? user!.name[0].toUpperCase()
+                          : 'S',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 36,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // Name
+                Text(
+                  user?.name ?? 'Student',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                // Role badge
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF00C9A7).withAlpha(30),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Text(
+                    'Student',
+                    style: TextStyle(
+                      color: Color(0xFF00C9A7),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                // Email info
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? Colors.white.withAlpha(10)
+                        : Colors.grey.withAlpha(20),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF3B82F6).withAlpha(30),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.email_rounded,
+                          color: Color(0xFF3B82F6),
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Email',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDark ? Colors.white60 : Colors.black45,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              user?.email ?? 'Not provided',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                                color: isDark ? Colors.white : Colors.black87,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // Security Options
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? Colors.white.withAlpha(10)
+                        : Colors.grey.withAlpha(20),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Quick Login Options',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      // Biometric Toggle
+                      if (authProvider.isBiometricAvailable)
+                        _buildSecurityToggle(
+                          icon: Icons.fingerprint_rounded,
+                          label: 'Biometric Login',
+                          subtitle: 'Use fingerprint or face to login',
+                          value: authProvider.isBiometricEnabled,
+                          color: const Color(0xFF10B981),
+                          isDark: isDark,
+                          onChanged: (value) async {
+                            await authProvider.setBiometricEnabled(value);
+                          },
+                        ),
+                      if (authProvider.isBiometricAvailable)
+                        const SizedBox(height: 12),
+                      // PIN Toggle
+                      _buildSecurityToggle(
+                        icon: Icons.pin_rounded,
+                        label: 'PIN Login',
+                        subtitle: authProvider.isPinEnabled
+                            ? 'PIN is set up'
+                            : 'Set up a 4-digit PIN',
+                        value: authProvider.isPinEnabled,
+                        color: const Color(0xFF6366F1),
+                        isDark: isDark,
+                        onChanged: (value) {
+                          if (value) {
+                            Navigator.pop(ctx);
+                            _showSetPinDialog(context);
+                          } else {
+                            authProvider.removePin();
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // Member since
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? Colors.white.withAlpha(10)
+                        : Colors.grey.withAlpha(20),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF10B981).withAlpha(30),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.calendar_today_rounded,
+                          color: Color(0xFF10B981),
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Member Since',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isDark ? Colors.white60 : Colors.black45,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _formatDate(user?.createdAt),
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                                color: isDark ? Colors.white : Colors.black87,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                // Logout button
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      _showLogoutConfirmation(context);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFEF4444),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      elevation: 0,
+                    ),
+                    icon: const Icon(Icons.logout_rounded),
+                    label: const Text(
+                      'Logout',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showLogoutConfirmation(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    final isDark = themeProvider.isDarkMode;
+    final authProvider = context.read<AuthProvider>();
+    final navigator = Navigator.of(context);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF2D2D2D) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEF4444).withAlpha(30),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.logout_rounded,
+                color: Color(0xFFEF4444),
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              'Logout?',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: isDark ? Colors.white : Colors.black87,
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'Are you sure you want to logout from your account?',
+          style: TextStyle(
+            color: isDark ? Colors.white60 : const Color(0xFF64748B),
+            fontSize: 14,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(
+              'Cancel',
+              style: TextStyle(
+                color: isDark ? Colors.white60 : const Color(0xFF64748B),
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await authProvider.logout();
+              navigator.pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const LoginPage()),
+                (route) => false,
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: const Text('Logout', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDate(DateTime? date) {
+    if (date == null) return 'Unknown';
+    final months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  }
+
+  Widget _buildSecurityToggle({
+    required IconData icon,
+    required String label,
+    required String subtitle,
+    required bool value,
+    required Color color,
+    required bool isDark,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: color.withAlpha(30),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, color: color, size: 20),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: isDark ? Colors.white : Colors.black87,
+                ),
+              ),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: isDark ? Colors.white54 : Colors.black45,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Switch(value: value, onChanged: onChanged, activeColor: color),
+      ],
+    );
+  }
+
+  void _showSetPinDialog(BuildContext context) {
+    final pinControllers = List.generate(4, (_) => TextEditingController());
+    final pinFocusNodes = List.generate(4, (_) => FocusNode());
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    final isDark = themeProvider.isDarkMode;
+    final authProvider = context.read<AuthProvider>();
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF2D2D2D) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF6366F1).withAlpha(30),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.pin_rounded,
+                color: Color(0xFF6366F1),
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              'Set PIN',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: isDark ? Colors.white : Colors.black87,
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Create a 4-digit PIN for quick login',
+              style: TextStyle(color: isDark ? Colors.white60 : Colors.grey),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: List.generate(4, (index) {
+                return SizedBox(
+                  width: 50,
+                  height: 60,
+                  child: TextField(
+                    controller: pinControllers[index],
+                    focusNode: pinFocusNodes[index],
+                    keyboardType: TextInputType.number,
+                    textAlign: TextAlign.center,
+                    maxLength: 1,
+                    obscureText: true,
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    decoration: InputDecoration(
+                      counterText: '',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(
+                          color: Color(0xFF6366F1),
+                          width: 2,
+                        ),
+                      ),
+                    ),
+                    onChanged: (value) {
+                      if (value.isNotEmpty && index < 3) {
+                        pinFocusNodes[index + 1].requestFocus();
+                      }
+                      if (value.isEmpty && index > 0) {
+                        pinFocusNodes[index - 1].requestFocus();
+                      }
+                    },
+                  ),
+                );
+              }),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              for (var c in pinControllers) {
+                c.dispose();
+              }
+              for (var n in pinFocusNodes) {
+                n.dispose();
+              }
+              Navigator.pop(ctx);
+            },
+            child: Text(
+              'Cancel',
+              style: TextStyle(
+                color: isDark ? Colors.white60 : const Color(0xFF64748B),
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final pin = pinControllers.map((c) => c.text).join();
+              if (pin.length != 4) {
+                scaffoldMessenger.showSnackBar(
+                  const SnackBar(content: Text('Please enter 4 digits')),
+                );
+                return;
+              }
+
+              for (var c in pinControllers) {
+                c.dispose();
+              }
+              for (var n in pinFocusNodes) {
+                n.dispose();
+              }
+
+              Navigator.pop(ctx);
+
+              final success = await authProvider.setPin(pin);
+              if (success) {
+                scaffoldMessenger.showSnackBar(
+                  const SnackBar(
+                    content: Text('PIN set successfully!'),
+                    backgroundColor: Color(0xFF10B981),
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF6366F1),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: const Text('Set PIN', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<ThemeProvider>(
@@ -104,28 +701,35 @@ class _HomePageState extends State<HomePage>
                         onPressed: () {},
                       ),
                       Expanded(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            const Text(
-                              'CGPA Calculator',
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                                letterSpacing: -0.3,
-                              ),
-                            ),
-                            Text(
-                              'Your Academic Companion',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w400,
-                                color: Colors.white.withAlpha(200),
-                              ),
-                            ),
-                          ],
+                        child: Consumer<AuthProvider>(
+                          builder: (context, authProvider, _) {
+                            final userName =
+                                authProvider.currentUser?.name ?? 'Student';
+                            return Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Text(
+                                  'Welcome, $userName',
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                    letterSpacing: -0.3,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  'Student Dashboard',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w400,
+                                    color: Colors.white.withAlpha(200),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
                         ),
                       ),
                       Consumer<ThemeProvider>(
@@ -141,12 +745,47 @@ class _HomePageState extends State<HomePage>
                           );
                         },
                       ),
-                      IconButton(
-                        icon: const Icon(
-                          Icons.share_rounded,
-                          color: Colors.white,
-                        ),
-                        onPressed: () {},
+                      // Profile Avatar
+                      Consumer<AuthProvider>(
+                        builder: (context, authProvider, _) {
+                          final user = authProvider.currentUser;
+                          final initial = user?.name.isNotEmpty == true
+                              ? user!.name[0].toUpperCase()
+                              : 'S';
+                          return GestureDetector(
+                            onTap: () => _showProfileSheet(context),
+                            child: Container(
+                              width: 38,
+                              height: 38,
+                              margin: const EdgeInsets.only(left: 8),
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [
+                                    Color(0xFF00C9A7),
+                                    Color(0xFF00D9B8),
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.white.withAlpha(100),
+                                  width: 2,
+                                ),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  initial,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
                       ),
                       IconButton(
                         icon: const Icon(
@@ -168,19 +807,34 @@ class _HomePageState extends State<HomePage>
                         children: [
                           // CGPA Card
                           Expanded(
-                            child: _buildTopCard(
-                              title: 'CGPA',
-                              value: '8.92',
-                              subtitle: 'Good Standing',
-                              icon: Icons.school_rounded,
-                              color: const Color(0xFF3B82F6),
-                              index: 0,
-                              onTap: () => Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const CGPAPage(),
-                                ),
-                              ),
+                            child: Consumer<CalculationHistoryProvider>(
+                              builder: (context, provider, _) {
+                                final cgpaCalcs = provider
+                                    .getCalculationsByType('CGPA');
+                                final latestCgpa = cgpaCalcs.isNotEmpty
+                                    ? cgpaCalcs.last.result
+                                    : null;
+                                final cgpaStr = latestCgpa != null
+                                    ? latestCgpa.toStringAsFixed(2)
+                                    : '--';
+                                final subtitle = latestCgpa != null
+                                    ? _getCgpaStanding(latestCgpa)
+                                    : 'No calculations yet';
+                                return _buildTopCard(
+                                  title: 'CGPA',
+                                  value: cgpaStr,
+                                  subtitle: subtitle,
+                                  icon: Icons.school_rounded,
+                                  color: const Color(0xFF3B82F6),
+                                  index: 0,
+                                  onTap: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => const CGPAPage(),
+                                    ),
+                                  ),
+                                );
+                              },
                             ),
                           ),
                           const SizedBox(width: 12),

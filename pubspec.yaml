@@ -9,6 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  supabase_flutter: ^2.3.4
   path: ^1.8.3
   path_provider: ^2.1.1
   fl_chart: ^0.68.0
@@ -19,6 +20,10 @@ dependencies:
   shared_preferences: ^2.5.4
   lottie: ^2.7.0
   share_plus: ^7.2.1
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  local_auth: ^2.1.8
+  flutter_secure_storage: ^9.0.0
 
 dev_dependencies:
   flutter_test:

@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'providers/auth_provider.dart';
 import 'home_page.dart';
 import 'teacher_home.dart';
+import 'signup_page.dart';
+import 'forgot_password_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -18,11 +22,51 @@ class _LoginPageState extends State<LoginPage>
   final _emailTeacherController = TextEditingController();
   final _passwordTeacherController = TextEditingController();
   bool _isLoading = false;
+  bool _rememberMeStudent = true;
+  bool _rememberMeTeacher = true;
+
+  // PIN controllers
+  final List<TextEditingController> _pinControllers = List.generate(
+    4,
+    (_) => TextEditingController(),
+  );
+  final List<FocusNode> _pinFocusNodes = List.generate(4, (_) => FocusNode());
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _loadRememberedCredentials();
+  }
+
+  void _loadRememberedCredentials() {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final authProvider = context.read<AuthProvider>();
+
+      // Wait for auth provider to initialize if not ready
+      if (!authProvider.isInitialized) {
+        await authProvider.init();
+      }
+
+      debugPrint(
+        'Checking remember me: ${authProvider.rememberMe}, email: ${authProvider.rememberedEmail}',
+      );
+
+      if (authProvider.rememberMe && authProvider.rememberedEmail != null) {
+        if (authProvider.rememberedRole == 'student') {
+          _emailStudentController.text = authProvider.rememberedEmail!;
+          _passwordStudentController.text =
+              authProvider.rememberedPassword ?? '';
+          _rememberMeStudent = true;
+        } else if (authProvider.rememberedRole == 'teacher') {
+          _emailTeacherController.text = authProvider.rememberedEmail!;
+          _passwordTeacherController.text =
+              authProvider.rememberedPassword ?? '';
+          _rememberMeTeacher = true;
+        }
+        if (mounted) setState(() {});
+      }
+    });
   }
 
   @override
@@ -32,10 +76,16 @@ class _LoginPageState extends State<LoginPage>
     _passwordStudentController.dispose();
     _emailTeacherController.dispose();
     _passwordTeacherController.dispose();
+    for (var c in _pinControllers) {
+      c.dispose();
+    }
+    for (var n in _pinFocusNodes) {
+      n.dispose();
+    }
     super.dispose();
   }
 
-  void _handleStudentLogin() {
+  void _handleStudentLogin() async {
     if (_emailStudentController.text.isEmpty ||
         _passwordStudentController.text.isEmpty) {
       ScaffoldMessenger.of(
@@ -45,15 +95,44 @@ class _LoginPageState extends State<LoginPage>
     }
 
     setState(() => _isLoading = true);
-    Future.delayed(const Duration(seconds: 1), () {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const HomePage()),
+
+    final authProvider = context.read<AuthProvider>();
+    final result = await authProvider.login(
+      email: _emailStudentController.text.trim(),
+      password: _passwordStudentController.text,
+      role: 'student',
+    );
+
+    if (result.success) {
+      // Always save credentials so silent re-login works on session expiry.
+      // The checkbox only controls whether fields are pre-filled on next visit.
+      await authProvider.setRememberMe(
+        _rememberMeStudent,
+        email: _emailStudentController.text.trim(),
+        password: _passwordStudentController.text,
+        role: 'student',
       );
-    });
+    }
+
+    setState(() => _isLoading = false);
+
+    if (result.success) {
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const HomePage()),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(result.message)));
+      }
+    }
   }
 
-  void _handleTeacherLogin() {
+  void _handleTeacherLogin() async {
     if (_emailTeacherController.text.isEmpty ||
         _passwordTeacherController.text.isEmpty) {
       ScaffoldMessenger.of(
@@ -63,12 +142,230 @@ class _LoginPageState extends State<LoginPage>
     }
 
     setState(() => _isLoading = true);
-    Future.delayed(const Duration(seconds: 1), () {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const TeacherHome()),
+
+    final authProvider = context.read<AuthProvider>();
+    final result = await authProvider.login(
+      email: _emailTeacherController.text.trim(),
+      password: _passwordTeacherController.text,
+      role: 'teacher',
+    );
+
+    if (result.success) {
+      // Always save credentials so silent re-login works on session expiry.
+      await authProvider.setRememberMe(
+        _rememberMeTeacher,
+        email: _emailTeacherController.text.trim(),
+        password: _passwordTeacherController.text,
+        role: 'teacher',
       );
-    });
+    }
+
+    setState(() => _isLoading = false);
+
+    if (result.success) {
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const TeacherHome()),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(result.message)));
+      }
+    }
+  }
+
+  void _handleBiometricLogin() async {
+    setState(() => _isLoading = true);
+
+    final authProvider = context.read<AuthProvider>();
+    final result = await authProvider.authenticateWithBiometric();
+
+    setState(() => _isLoading = false);
+
+    if (result.success && result.user != null) {
+      if (mounted) {
+        if (result.user!.role == 'teacher') {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const TeacherHome()),
+          );
+        } else {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const HomePage()),
+          );
+        }
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(result.message)));
+      }
+    }
+  }
+
+  void _showPinLoginDialog() {
+    final authProvider = context.read<AuthProvider>();
+    if (!authProvider.isPinEnabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'PIN login is not enabled. Please login with email first and enable PIN from your profile.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    // Clear PIN fields
+    for (var c in _pinControllers) {
+      c.clear();
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF4F46E5).withAlpha(30),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.pin_rounded,
+                color: Color(0xFF4F46E5),
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Text(
+              'Enter PIN',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Enter your 4-digit PIN to login',
+              style: TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: List.generate(4, (index) {
+                return SizedBox(
+                  width: 50,
+                  height: 60,
+                  child: TextField(
+                    controller: _pinControllers[index],
+                    focusNode: _pinFocusNodes[index],
+                    keyboardType: TextInputType.number,
+                    textAlign: TextAlign.center,
+                    maxLength: 1,
+                    obscureText: true,
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    decoration: InputDecoration(
+                      counterText: '',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(
+                          color: Color(0xFF4F46E5),
+                          width: 2,
+                        ),
+                      ),
+                    ),
+                    onChanged: (value) {
+                      if (value.isNotEmpty && index < 3) {
+                        _pinFocusNodes[index + 1].requestFocus();
+                      }
+                      if (value.isEmpty && index > 0) {
+                        _pinFocusNodes[index - 1].requestFocus();
+                      }
+                      // Auto submit when all digits entered
+                      if (index == 3 && value.isNotEmpty) {
+                        _submitPin(ctx);
+                      }
+                    },
+                  ),
+                );
+              }),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => _submitPin(ctx),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF4F46E5),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            child: const Text('Login', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _submitPin(BuildContext dialogContext) async {
+    final pin = _pinControllers.map((c) => c.text).join();
+    if (pin.length != 4) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter complete PIN')),
+      );
+      return;
+    }
+
+    Navigator.pop(dialogContext);
+    setState(() => _isLoading = true);
+
+    final authProvider = context.read<AuthProvider>();
+    final result = await authProvider.authenticateWithPin(pin);
+
+    setState(() => _isLoading = false);
+
+    if (result.success && result.user != null) {
+      if (mounted) {
+        if (result.user!.role == 'teacher') {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const TeacherHome()),
+          );
+        } else {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const HomePage()),
+          );
+        }
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(result.message)));
+      }
+    }
   }
 
   @override
@@ -184,6 +481,72 @@ class _LoginPageState extends State<LoginPage>
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   children: [
+                    // Quick Login Options
+                    Consumer<AuthProvider>(
+                      builder: (context, authProvider, _) {
+                        final showQuickLogin =
+                            authProvider.isBiometricEnabled ||
+                            authProvider.isPinEnabled;
+                        if (!showQuickLogin) return const SizedBox.shrink();
+
+                        return Column(
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Divider(color: Colors.grey[300]),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                  ),
+                                  child: Text(
+                                    'Quick Login',
+                                    style: TextStyle(
+                                      color: Colors.grey[500],
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Divider(color: Colors.grey[300]),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                if (authProvider.isBiometricEnabled)
+                                  _buildQuickLoginButton(
+                                    icon: Icons.fingerprint_rounded,
+                                    label: 'Biometric',
+                                    color: const Color(0xFF10B981),
+                                    onTap: _isLoading
+                                        ? null
+                                        : _handleBiometricLogin,
+                                  ),
+                                if (authProvider.isBiometricEnabled &&
+                                    authProvider.isPinEnabled)
+                                  const SizedBox(width: 16),
+                                if (authProvider.isPinEnabled)
+                                  _buildQuickLoginButton(
+                                    icon: Icons.pin_rounded,
+                                    label: 'PIN',
+                                    color: const Color(0xFF6366F1),
+                                    onTap: _isLoading
+                                        ? null
+                                        : _showPinLoginDialog,
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+                        );
+                      },
+                    ),
+
                     // Tab Bar
                     Container(
                       decoration: BoxDecoration(
@@ -214,7 +577,7 @@ class _LoginPageState extends State<LoginPage>
                         ],
                       ),
                     ),
-                    const SizedBox(height: 30),
+                    const SizedBox(height: 20),
                     // Tab Views
                     Expanded(
                       child: TabBarView(
@@ -227,6 +590,12 @@ class _LoginPageState extends State<LoginPage>
                             onLogin: _handleStudentLogin,
                             roleColor: const Color(0xFF4F46E5),
                             isLoading: _isLoading,
+                            rememberMe: _rememberMeStudent,
+                            onRememberMeChanged: (value) {
+                              setState(
+                                () => _rememberMeStudent = value ?? false,
+                              );
+                            },
                           ),
                           // Teacher Login
                           _buildLoginForm(
@@ -235,6 +604,12 @@ class _LoginPageState extends State<LoginPage>
                             onLogin: _handleTeacherLogin,
                             roleColor: const Color(0xFF7C3AED),
                             isLoading: _isLoading,
+                            rememberMe: _rememberMeTeacher,
+                            onRememberMeChanged: (value) {
+                              setState(
+                                () => _rememberMeTeacher = value ?? false,
+                              );
+                            },
                           ),
                         ],
                       ),
@@ -253,10 +628,10 @@ class _LoginPageState extends State<LoginPage>
                         ),
                         GestureDetector(
                           onTap: () {
-                            // Handle sign up navigation
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Sign up feature coming soon!'),
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const SignUpPage(),
                               ),
                             );
                           },
@@ -287,6 +662,8 @@ class _LoginPageState extends State<LoginPage>
     required VoidCallback onLogin,
     required Color roleColor,
     required bool isLoading,
+    required bool rememberMe,
+    required ValueChanged<bool?> onRememberMeChanged,
   }) {
     return Column(
       children: [
@@ -320,27 +697,52 @@ class _LoginPageState extends State<LoginPage>
             hintText: 'Enter your password',
           ),
         ),
-        const SizedBox(height: 12),
-        // Forgot Password
-        Align(
-          alignment: Alignment.centerRight,
-          child: GestureDetector(
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Password reset feature coming soon!'),
+        const SizedBox(height: 8),
+        // Remember Me and Forgot Password Row
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            // Remember Me Checkbox
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: Checkbox(
+                    value: rememberMe,
+                    onChanged: onRememberMeChanged,
+                    activeColor: roleColor,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
                 ),
-              );
-            },
-            child: Text(
-              'Forgot Password?',
-              style: TextStyle(
-                fontSize: 13,
-                color: roleColor,
-                fontWeight: FontWeight.w600,
+                const SizedBox(width: 6),
+                Text(
+                  'Remember Me',
+                  style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                ),
+              ],
+            ),
+            // Forgot Password
+            GestureDetector(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ForgotPasswordPage()),
+                );
+              },
+              child: Text(
+                'Forgot Password?',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: roleColor,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
-          ),
+          ],
         ),
         const Spacer(),
         // Login Button
@@ -384,6 +786,44 @@ class _LoginPageState extends State<LoginPage>
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildQuickLoginButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback? onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          decoration: BoxDecoration(
+            color: color.withAlpha(20),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: color.withAlpha(60)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: color, size: 24),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  color: color,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

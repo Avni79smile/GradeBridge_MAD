@@ -27,7 +27,9 @@
       "args": [
         "run",
         "-d",
-        "chrome"
+        "chrome",
+        "--web-port",
+        "5000"
       ],
       "problemMatcher": [],
       "group": {

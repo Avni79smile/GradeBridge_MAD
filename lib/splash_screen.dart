@@ -1,7 +1,11 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'providers/auth_provider.dart';
 import 'login_page.dart';
+import 'home_page.dart';
+import 'teacher_home.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -50,11 +54,42 @@ class _SplashScreenState extends State<SplashScreen>
     _animationController.forward();
 
     Timer(const Duration(seconds: 3), () {
+      _navigateBasedOnAuth();
+    });
+  }
+
+  void _navigateBasedOnAuth() async {
+    final authProvider = context.read<AuthProvider>();
+
+    // Wait for auth provider to initialize (max 2 seconds additional wait)
+    int attempts = 0;
+    while (!authProvider.isInitialized && attempts < 20) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      attempts++;
+    }
+
+    if (!mounted) return;
+
+    if (authProvider.isLoggedIn && authProvider.currentUser != null) {
+      // User is logged in, navigate based on role
+      if (authProvider.currentUser!.role == 'teacher') {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const TeacherHome()),
+        );
+      } else {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const HomePage()),
+        );
+      }
+    } else {
+      // Not logged in, go to login page
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const LoginPage()),
       );
-    });
+    }
   }
 
   @override

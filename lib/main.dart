@@ -1,17 +1,40 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_application_1/splash_screen.dart';
 import 'providers/theme_provider.dart';
 import 'providers/calculation_history_provider.dart';
 import 'providers/what_if_provider.dart';
+import 'providers/batch_provider.dart';
+import 'providers/student_provider.dart';
+import 'providers/student_grade_provider.dart';
+import 'providers/auth_provider.dart';
+import 'services/supabase_config.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Supabase
+  await Supabase.initialize(url: supabaseUrl, anonKey: supabaseAnonKey);
+
+  // Initialize auth provider to load saved user session
+  final authProvider = AuthProvider();
+  await authProvider.init();
+
+  // Initialize grade provider after auth so session is available
+  final studentGradeProvider = StudentGradeProvider();
+  await studentGradeProvider.init();
+
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => CalculationHistoryProvider()),
         ChangeNotifierProvider(create: (_) => WhatIfAnalysisProvider()),
+        ChangeNotifierProvider(create: (_) => BatchProvider()),
+        ChangeNotifierProvider(create: (_) => StudentProvider()),
+        ChangeNotifierProvider.value(value: studentGradeProvider),
+        ChangeNotifierProvider.value(value: authProvider),
       ],
       child: const GradeBridgeApp(),
     ),

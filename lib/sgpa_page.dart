@@ -64,19 +64,20 @@ class _SGPAPageState extends State<SGPAPage> {
       double gradePoint = 0;
 
       if (percentage >= 90) {
-        gradePoint = 10;
+        gradePoint = 10; // O  - Outstanding
       } else if (percentage >= 80)
-        gradePoint = 9;
+        gradePoint = 9; // A+ - Excellent
       else if (percentage >= 70)
-        gradePoint = 8;
+        gradePoint = 8; // A  - Very Good
       else if (percentage >= 60)
-        gradePoint = 7;
+        gradePoint = 7; // B+ - Good
       else if (percentage >= 50)
-        gradePoint = 6;
+        gradePoint = 6; // B  - Above Average
+      else if (percentage >= 45)
+        gradePoint = 5; // C  - Average
       else if (percentage >= 40)
-        gradePoint = 5;
-      else if (percentage >= 30)
-        gradePoint = 4;
+        gradePoint = 4; // P  - Pass
+      // else gradePoint stays 0 (F - Fail, below 40%)
 
       totalGradePoints += gradePoint * credit;
       totalCredits += credit;
@@ -224,6 +225,17 @@ class _SGPAPageState extends State<SGPAPage> {
                         ),
                       ),
                     ),
+                    if (sgpa > 0) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        'Percentage: ${(sgpa * 9.5).toStringAsFixed(1)}%',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white.withAlpha(230),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

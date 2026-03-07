@@ -17,7 +17,11 @@
       "request": "launch",
       "program": "lib/main.dart",
       "deviceId": "chrome",
-      "cwd": "${workspaceFolder}"
+      "cwd": "${workspaceFolder}",
+      "args": [
+        "--web-port",
+        "5000"
+      ]
     }
   ]
 }
