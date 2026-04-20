@@ -873,6 +873,8 @@ class _BatchManagementPageState extends State<BatchManagementPage>
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
     final isDark = themeProvider.isDarkMode;
+    final teacherColors = themeProvider.teacherGradientColors;
+    final teacherAccent = themeProvider.teacherAccentColor;
 
     return Scaffold(
       body: Container(
@@ -880,17 +882,7 @@ class _BatchManagementPageState extends State<BatchManagementPage>
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: isDark
-                ? [
-                    const Color(0xFF0F172A),
-                    const Color(0xFF1E293B),
-                    const Color(0xFF334155),
-                  ]
-                : [
-                    const Color(0xFF1E3A8A),
-                    const Color(0xFF2563EB),
-                    const Color(0xFF3B82F6),
-                  ],
+            colors: teacherColors,
             stops: const [0.0, 0.5, 1.0],
           ),
         ),
@@ -965,9 +957,7 @@ class _BatchManagementPageState extends State<BatchManagementPage>
                         if (batchProvider.isLoading) {
                           return Center(
                             child: CircularProgressIndicator(
-                              color: isDark
-                                  ? Colors.white
-                                  : const Color(0xFF3B82F6),
+                              color: isDark ? Colors.white : teacherAccent,
                             ),
                           );
                         }
@@ -989,8 +979,8 @@ class _BatchManagementPageState extends State<BatchManagementPage>
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showCreateBatchDialog(isDark),
         backgroundColor: isDark
-            ? const Color(0xFF6C63FF)
-            : const Color(0xFF3B82F6),
+            ? themeProvider.teacherAccentStrongColor
+            : teacherAccent,
         icon: const Icon(Icons.add_rounded, color: Colors.white),
         label: const Text(
           'Create Batch',
@@ -1001,6 +991,8 @@ class _BatchManagementPageState extends State<BatchManagementPage>
   }
 
   Widget _buildEmptyState(bool isDark) {
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    final teacherAccent = themeProvider.teacherAccentColor;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -1011,7 +1003,9 @@ class _BatchManagementPageState extends State<BatchManagementPage>
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
                 color:
-                    (isDark ? const Color(0xFF6C63FF) : const Color(0xFF3B82F6))
+                    (isDark
+                            ? themeProvider.teacherAccentStrongColor
+                            : teacherAccent)
                         .withAlpha(20),
                 shape: BoxShape.circle,
               ),
@@ -1019,8 +1013,8 @@ class _BatchManagementPageState extends State<BatchManagementPage>
                 Icons.groups_rounded,
                 size: 64,
                 color: isDark
-                    ? const Color(0xFF6C63FF)
-                    : const Color(0xFF3B82F6),
+                    ? themeProvider.teacherAccentStrongColor
+                    : teacherAccent,
               ),
             ),
             const SizedBox(height: 24),

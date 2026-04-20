@@ -117,6 +117,44 @@ lib/
 - ✅ Settings page
 - ✅ Beautiful UI with animations
 - ✅ Zero compilation errors
+- ✅ Teacher analytics visible to students
+- ✅ Calculations saved persistently to Supabase
+
+---
+
+## 🗄️ Supabase Database Setup (Required for persistence)
+
+Run the following SQL in your [Supabase SQL Editor](https://supabase.com/dashboard/project/_/sql):
+
+```sql
+-- Table for persisting each user's own CGPA/SGPA calculations
+CREATE TABLE IF NOT EXISTS user_calculations (
+  user_id   UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  calculations  JSONB NOT NULL DEFAULT '[]',
+  last_updated  TEXT
+);
+
+-- Allow logged-in users to read/write only their own row
+ALTER TABLE user_calculations ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Own calculations" ON user_calculations
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+-- Existing tables (already created) -- for reference:
+-- batches, students, student_grades, user_profiles
+```
+
+> **Why?** Without the `user_calculations` table, your own CGPA/SGPA calculations
+> are only stored in device storage (SharedPreferences) and may be lost when the
+> app cache is cleared or the device is changed.  With this table the data is
+> synced to Supabase and survives reinstalls.
+
+### Teacher → Student Analytics Flow
+1. Teacher adds a student with the student's **email address**.
+2. Teacher enters grades for that student via *Batch → Student → Manage Grades*.
+3. When the **student** logs in with the same email, a "Teacher's Analysis" card
+   appears automatically on their home screen, showing their CGPA/SGPA and a
+   full semester breakdown entered by the teacher.
 
 **Features Accessible from Home Screen:**
 1. CGPA Calculator

@@ -22,8 +22,6 @@ class _LoginPageState extends State<LoginPage>
   final _emailTeacherController = TextEditingController();
   final _passwordTeacherController = TextEditingController();
   bool _isLoading = false;
-  bool _rememberMeStudent = true;
-  bool _rememberMeTeacher = true;
 
   // PIN controllers
   final List<TextEditingController> _pinControllers = List.generate(
@@ -36,37 +34,6 @@ class _LoginPageState extends State<LoginPage>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    _loadRememberedCredentials();
-  }
-
-  void _loadRememberedCredentials() {
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final authProvider = context.read<AuthProvider>();
-
-      // Wait for auth provider to initialize if not ready
-      if (!authProvider.isInitialized) {
-        await authProvider.init();
-      }
-
-      debugPrint(
-        'Checking remember me: ${authProvider.rememberMe}, email: ${authProvider.rememberedEmail}',
-      );
-
-      if (authProvider.rememberMe && authProvider.rememberedEmail != null) {
-        if (authProvider.rememberedRole == 'student') {
-          _emailStudentController.text = authProvider.rememberedEmail!;
-          _passwordStudentController.text =
-              authProvider.rememberedPassword ?? '';
-          _rememberMeStudent = true;
-        } else if (authProvider.rememberedRole == 'teacher') {
-          _emailTeacherController.text = authProvider.rememberedEmail!;
-          _passwordTeacherController.text =
-              authProvider.rememberedPassword ?? '';
-          _rememberMeTeacher = true;
-        }
-        if (mounted) setState(() {});
-      }
-    });
   }
 
   @override
@@ -104,10 +71,8 @@ class _LoginPageState extends State<LoginPage>
     );
 
     if (result.success) {
-      // Always save credentials so silent re-login works on session expiry.
-      // The checkbox only controls whether fields are pre-filled on next visit.
       await authProvider.setRememberMe(
-        _rememberMeStudent,
+        true,
         email: _emailStudentController.text.trim(),
         password: _passwordStudentController.text,
         role: 'student',
@@ -151,9 +116,8 @@ class _LoginPageState extends State<LoginPage>
     );
 
     if (result.success) {
-      // Always save credentials so silent re-login works on session expiry.
       await authProvider.setRememberMe(
-        _rememberMeTeacher,
+        true,
         email: _emailTeacherController.text.trim(),
         password: _passwordTeacherController.text,
         role: 'teacher',
@@ -388,28 +352,27 @@ class _LoginPageState extends State<LoginPage>
           slivers: [
             // Header
             SliverAppBar(
-              expandedHeight: 160,
+              expandedHeight: 200,
               floating: false,
               pinned: true,
               elevation: 0,
               backgroundColor: Colors.white,
               flexibleSpace: FlexibleSpaceBar(
                 background: Container(
-                  decoration: BoxDecoration(
+                  decoration: const BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: [
-                        const Color(0xFF4F46E5),
-                        const Color(0xFF7C3AED),
-                        const Color(0xFFA78BFA),
+                        Color(0xFF4F46E5),
+                        Color(0xFF7C3AED),
+                        Color(0xFFA78BFA),
                       ],
-                      stops: const [0.0, 0.5, 1.0],
+                      stops: [0.0, 0.5, 1.0],
                     ),
                   ),
                   child: Stack(
                     children: [
-                      // Decorative circles
                       Positioned(
                         top: -50,
                         right: -30,
@@ -434,7 +397,103 @@ class _LoginPageState extends State<LoginPage>
                           ),
                         ),
                       ),
-                      // Content
+                      // Floating student avatar
+                      Positioned(
+                        top: 30,
+                        right: 28,
+                        child: Container(
+                          width: 52,
+                          height: 52,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF10B981), Color(0xFF34D399)],
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF10B981).withAlpha(80),
+                                blurRadius: 12,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: const Center(
+                            child: Icon(
+                              Icons.school_rounded,
+                              color: Colors.white,
+                              size: 26,
+                            ),
+                          ),
+                        ),
+                      ),
+                      // Floating teacher avatar
+                      Positioned(
+                        top: 20,
+                        right: 96,
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFEC4899), Color(0xFFF472B6)],
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFFEC4899).withAlpha(80),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: const Center(
+                            child: Icon(
+                              Icons.person_rounded,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                          ),
+                        ),
+                      ),
+                      // GradeBridge logo pill
+                      Positioned(
+                        bottom: 60,
+                        right: 20,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withAlpha(30),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: Colors.white.withAlpha(60),
+                              width: 1,
+                            ),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.auto_graph_rounded,
+                                color: Colors.white,
+                                size: 14,
+                              ),
+                              SizedBox(width: 6),
+                              Text(
+                                'GradeBridge',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      // Welcome text
                       Padding(
                         padding: const EdgeInsets.all(20),
                         child: Column(
@@ -442,7 +501,7 @@ class _LoginPageState extends State<LoginPage>
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Welcome Back',
+                              'Welcome Back 🎠',
                               style: TextStyle(
                                 fontSize: 28,
                                 fontWeight: FontWeight.w800,
@@ -459,9 +518,9 @@ class _LoginPageState extends State<LoginPage>
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              'Choose your role and login',
+                              'Sign in to continue your academic journey',
                               style: TextStyle(
-                                fontSize: 14,
+                                fontSize: 13,
                                 fontWeight: FontWeight.w400,
                                 color: Colors.white.withAlpha(220),
                                 letterSpacing: 0.2,
@@ -590,12 +649,6 @@ class _LoginPageState extends State<LoginPage>
                             onLogin: _handleStudentLogin,
                             roleColor: const Color(0xFF4F46E5),
                             isLoading: _isLoading,
-                            rememberMe: _rememberMeStudent,
-                            onRememberMeChanged: (value) {
-                              setState(
-                                () => _rememberMeStudent = value ?? false,
-                              );
-                            },
                           ),
                           // Teacher Login
                           _buildLoginForm(
@@ -604,12 +657,6 @@ class _LoginPageState extends State<LoginPage>
                             onLogin: _handleTeacherLogin,
                             roleColor: const Color(0xFF7C3AED),
                             isLoading: _isLoading,
-                            rememberMe: _rememberMeTeacher,
-                            onRememberMeChanged: (value) {
-                              setState(
-                                () => _rememberMeTeacher = value ?? false,
-                              );
-                            },
                           ),
                         ],
                       ),
@@ -662,8 +709,6 @@ class _LoginPageState extends State<LoginPage>
     required VoidCallback onLogin,
     required Color roleColor,
     required bool isLoading,
-    required bool rememberMe,
-    required ValueChanged<bool?> onRememberMeChanged,
   }) {
     return Column(
       children: [
@@ -698,51 +743,25 @@ class _LoginPageState extends State<LoginPage>
           ),
         ),
         const SizedBox(height: 8),
-        // Remember Me and Forgot Password Row
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            // Remember Me Checkbox
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: Checkbox(
-                    value: rememberMe,
-                    onChanged: onRememberMeChanged,
-                    activeColor: roleColor,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  'Remember Me',
-                  style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                ),
-              ],
-            ),
-            // Forgot Password
-            GestureDetector(
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const ForgotPasswordPage()),
-                );
-              },
-              child: Text(
-                'Forgot Password?',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: roleColor,
-                  fontWeight: FontWeight.w600,
-                ),
+        // Forgot Password
+        Align(
+          alignment: Alignment.centerRight,
+          child: GestureDetector(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ForgotPasswordPage()),
+              );
+            },
+            child: Text(
+              'Forgot Password?',
+              style: TextStyle(
+                fontSize: 13,
+                color: roleColor,
+                fontWeight: FontWeight.w600,
               ),
             ),
-          ],
+          ),
         ),
         const Spacer(),
         // Login Button

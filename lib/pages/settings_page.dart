@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
 import '../providers/calculation_history_provider.dart';
+import '../providers/auth_provider.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -13,8 +14,26 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   @override
   Widget build(BuildContext context) {
+    final themeProvider = context.watch<ThemeProvider>();
+    final authProvider = context.watch<AuthProvider>();
+    final isTeacher = authProvider.currentUser?.role == 'teacher';
+    final teacherColors = themeProvider.teacherGradientColors;
+
     return Scaffold(
       appBar: AppBar(
+        flexibleSpace: isTeacher
+            ? Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: teacherColors,
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                  ),
+                ),
+              )
+            : null,
+        backgroundColor: isTeacher ? Colors.transparent : null,
+        foregroundColor: isTeacher ? Colors.white : null,
         title: const Text('Settings'),
         elevation: 0.5,
         centerTitle: true,

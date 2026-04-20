@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/calculation_history_provider.dart';
+import '../providers/auth_provider.dart';
+import '../providers/theme_provider.dart';
 import '../models/calculation_model.dart';
 
 class AnalyticsPage extends StatefulWidget {
@@ -11,7 +13,14 @@ class AnalyticsPage extends StatefulWidget {
 }
 
 class _AnalyticsPageState extends State<AnalyticsPage> {
-  String _selectedFilter = 'All'; // All, CGPA, SGPA
+  String _selectedFilter = 'All'; // All, CGPA, SGPA, PERCENTAGE
+
+  String _formatDate(DateTime timestamp) {
+    final d = timestamp.day.toString().padLeft(2, '0');
+    final m = timestamp.month.toString().padLeft(2, '0');
+    final y = timestamp.year.toString();
+    return '$d/$m/$y';
+  }
 
   @override
   void initState() {
@@ -23,8 +32,27 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = context.watch<ThemeProvider>();
+    final authProvider = context.watch<AuthProvider>();
+    final isTeacher = authProvider.currentUser?.role == 'teacher';
+    final teacherColors = themeProvider.teacherGradientColors;
+    final teacherAccent = themeProvider.teacherAccentColor;
+
     return Scaffold(
       appBar: AppBar(
+        flexibleSpace: isTeacher
+            ? Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: teacherColors,
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                  ),
+                ),
+              )
+            : null,
+        backgroundColor: isTeacher ? Colors.transparent : null,
+        foregroundColor: isTeacher ? Colors.white : null,
         title: const Text('Analytics Dashboard'),
         elevation: 0.5,
         centerTitle: true,
@@ -32,7 +60,11 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       body: Consumer<CalculationHistoryProvider>(
         builder: (context, provider, _) {
           if (provider.isLoading) {
-            return const Center(child: CircularProgressIndicator());
+            return Center(
+              child: CircularProgressIndicator(
+                color: isTeacher ? teacherAccent : null,
+              ),
+            );
           }
 
           if (provider.calculations.isEmpty) {
@@ -65,8 +97,14 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           List<CalculationRecord> filteredData = _selectedFilter == 'All'
               ? provider.calculations
               : provider.calculations
-                    .where((c) => c.calculationType == _selectedFilter)
+                    .where(
+                      (c) =>
+                          c.calculationType.trim().toUpperCase() ==
+                          _selectedFilter.toUpperCase(),
+                    )
                     .toList();
+
+          filteredData.sort((a, b) => b.timestamp.compareTo(a.timestamp));
 
           return ListView(
             padding: const EdgeInsets.all(16),
@@ -75,7 +113,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
-                  children: ['All', 'CGPA', 'SGPA'].map((filter) {
+                  children: ['All', 'CGPA', 'SGPA', 'PERCENTAGE'].map((filter) {
                     return Padding(
                       padding: const EdgeInsets.only(right: 8.0),
                       child: FilterChip(
@@ -179,31 +217,42 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
             itemCount: data.take(5).length,
             separatorBuilder: (_, __) => const Divider(),
             itemBuilder: (context, index) {
-              final record = data[index];
+              final record = data.take(5).toList()[index];
+              final type = record.calculationType.trim().toUpperCase();
+              final isCgpa = type == 'CGPA';
+              final isSgpa = type == 'SGPA';
+              final tileColor = isCgpa
+                  ? Colors.blue
+                  : isSgpa
+                  ? Colors.purple
+                  : Colors.orange;
+              final tileIcon = isCgpa
+                  ? Icons.calculate_rounded
+                  : isSgpa
+                  ? Icons.school_rounded
+                  : Icons.percent_rounded;
+
               return ListTile(
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: record.calculationType == 'CGPA'
-                        ? Colors.blue.shade100
-                        : Colors.purple.shade100,
+                    color: tileColor.shade100,
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Icon(
-                    record.calculationType == 'CGPA'
-                        ? Icons.calculate_rounded
-                        : Icons.school_rounded,
-                    color: record.calculationType == 'CGPA'
-                        ? Colors.blue
-                        : Colors.purple,
-                  ),
+                  child: Icon(tileIcon, color: tileColor),
                 ),
                 title: Text(
                   '${record.calculationType}: ${record.result.toStringAsFixed(2)}',
                 ),
-                subtitle: Text(record.semesterName),
+                subtitle: Text(
+                  type == 'CGPA'
+                      ? '${record.semesterName} • ${(record.result * 9.5).clamp(0, 100).toStringAsFixed(1)}%'
+                      : type == 'PERCENTAGE'
+                      ? '${record.semesterName} • from CGPA'
+                      : record.semesterName,
+                ),
                 trailing: Text(
-                  '${record.timestamp.month}/${record.timestamp.day}',
+                  _formatDate(record.timestamp),
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               );

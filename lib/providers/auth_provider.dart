@@ -29,6 +29,14 @@ class AuthProvider extends ChangeNotifier {
   String? _rememberedPassword;
   String? _rememberedRole;
 
+  // Persistent session credentials — always saved on every login, cleared only
+  // on explicit logout. Enables silent re-login for ALL users regardless of the
+  // "Remember Me" checkbox, surviving app restarts and token expiry.
+  bool _isExplicitLogout = false;
+  String? _sessionEmail;
+  String? _sessionPassword;
+  String? _sessionRole;
+
   // Secure storage for sensitive data (not available on web)
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
 
@@ -82,6 +90,89 @@ class AuthProvider extends ChangeNotifier {
     await _secureStorage.delete(key: key);
   }
 
+  // ============ SESSION CREDENTIAL PERSISTENCE ============
+
+  Future<void> _loadSessionCredentials() async {
+    try {
+      _sessionEmail = await _secureRead('session_email');
+      _sessionPassword = await _secureRead('session_password');
+      _sessionRole = await _secureRead('session_role');
+    } catch (e) {
+      debugPrint('Failed to load session credentials: $e');
+    }
+  }
+
+  Future<void> _saveSessionCredentials(
+    String email,
+    String password,
+    String role,
+  ) async {
+    try {
+      await _secureWrite('session_email', email);
+      await _secureWrite('session_password', password);
+      await _secureWrite('session_role', role);
+      _sessionEmail = email;
+      _sessionPassword = password;
+      _sessionRole = role;
+    } catch (e) {
+      debugPrint('Failed to save session credentials: $e');
+    }
+  }
+
+  Future<void> _clearSessionCredentials() async {
+    try {
+      await _secureDelete('session_email');
+      await _secureDelete('session_password');
+      await _secureDelete('session_role');
+    } catch (e) {
+      debugPrint('Failed to clear session credentials: $e');
+    }
+    _sessionEmail = null;
+    _sessionPassword = null;
+    _sessionRole = null;
+  }
+
+  /// Silently re-authenticate using stored credentials.
+  /// Prefers session credentials; falls back to Remember-Me credentials.
+  /// Returns true if successful.
+  Future<bool> _trySilentReLogin() async {
+    // Use session credentials first, fall back to Remember Me credentials.
+    final email = _sessionEmail ?? _rememberedEmail;
+    final password = _sessionPassword ?? _rememberedPassword;
+    if (email == null || password == null) return false;
+    try {
+      final response = await _supabase.auth.signInWithPassword(
+        email: email,
+        password: password,
+      );
+      if (response.user != null) {
+        final foundRole =
+            (response.user!.userMetadata?['role'] as String?)?.trim() ?? '';
+        final responseRole = foundRole.isNotEmpty ? foundRole : 'student';
+
+        final expectedRole = _sessionRole ?? _rememberedRole;
+        debugPrint(
+          'Silent login attempt: email=$email, expectedRole=$expectedRole, responseRole=$responseRole',
+        );
+
+        if (expectedRole != null && expectedRole != responseRole) {
+          await _supabase.auth.signOut();
+          debugPrint(
+            'Silent login role mismatch: expected=$expectedRole, actual=$responseRole',
+          );
+          return false;
+        }
+
+        _currentUser = AppUser.fromSupabaseUser(response.user!);
+        debugPrint('Silent login success for $email (role $responseRole)');
+        return true;
+      }
+    } catch (_) {
+      // Network error or invalid credentials — silent failure.
+    }
+    return false;
+  }
+
   // ============ INITIALISATION ============
 
   AuthProvider() {
@@ -96,23 +187,45 @@ class AuthProvider extends ChangeNotifier {
     }
     _initCompleter = Completer<void>();
 
-    // Completer that resolves once Supabase fires the INITIAL_SESSION event,
-    // telling us whether the user has a valid (or refreshed) session.
+    // ── Step 1: Synchronous check ──────────────────────────────────────────
+    // supabase_flutter loads the stored session into memory synchronously
+    // during Supabase.initialize(). Check here BEFORE any async work so we
+    // don't miss it even if the INITIAL_SESSION event fires before our
+    // listener is attached.
+    final syncUser = _supabase.auth.currentUser;
+    if (syncUser != null) {
+      _currentUser = AppUser.fromSupabaseUser(syncUser);
+    }
+
+    // ── Step 2: Load stored re-login credentials ───────────────────────────
+    await _loadSessionCredentials();
+    await _loadRememberMeSetting(); // needed early so _trySilentReLogin can use _rememberedEmail
+
+    // ── Step 3: Subscribe to auth state changes ────────────────────────────
     final sessionCompleter = Completer<void>();
 
-    _authStateSubscription = _supabase.auth.onAuthStateChange.listen((data) {
+    _authStateSubscription = _supabase.auth.onAuthStateChange.listen((
+      data,
+    ) async {
       final event = data.event;
       final session = data.session;
 
       if (session != null) {
         _currentUser = AppUser.fromSupabaseUser(session.user);
       } else if (event == AuthChangeEvent.signedOut) {
-        // Only clear the current user on an EXPLICIT sign-out.
-        // Never clear it on token-refresh failures or transient null events.
-        _currentUser = null;
+        if (_isExplicitLogout) {
+          // Deliberate logout — clear current user and stop.
+          _currentUser = null;
+        } else {
+          // Session expired/revoked automatically — silently re-login so the
+          // user never sees the login page unless they explicitly logged out.
+          final success = await _trySilentReLogin();
+          if (!success) {
+            _currentUser = null;
+          }
+        }
       }
 
-      // Signal that the initial session check has been completed.
       if (!sessionCompleter.isCompleted) {
         sessionCompleter.complete();
       }
@@ -120,41 +233,30 @@ class AuthProvider extends ChangeNotifier {
       notifyListeners();
     });
 
-    // Wait up to 5 seconds for Supabase to restore/refresh the stored session.
-    // If the timeout fires (e.g. device is fully offline), fall back to
-    // currentUser which the SDK exposes from its local cache.
-    try {
-      await sessionCompleter.future.timeout(const Duration(seconds: 5));
-    } catch (_) {
-      final user = _supabase.auth.currentUser;
-      if (user != null && _currentUser == null) {
-        _currentUser = AppUser.fromSupabaseUser(user);
+    // ── Step 4: Wait for INITIAL_SESSION only if needed ────────────────────
+    // If we already have a user from the sync check (Step 1), skip the wait.
+    // Otherwise wait up to 5 s; on timeout fall back to the SDK in-memory cache.
+    if (_currentUser == null) {
+      try {
+        await sessionCompleter.future.timeout(const Duration(seconds: 5));
+      } catch (_) {
+        final user = _supabase.auth.currentUser;
+        if (user != null && _currentUser == null) {
+          _currentUser = AppUser.fromSupabaseUser(user);
+        }
       }
     }
 
     await _checkBiometricAvailability();
     await _loadBiometricSetting();
     await _loadPinSetting();
-    await _loadRememberMeSetting();
+    // Note: _loadRememberMeSetting() was already called in Step 2.
 
-    // If Supabase session expired but user had "Remember Me" enabled,
-    // silently re-login so they never see the login page on app restart.
-    if (_currentUser == null &&
-        _rememberMe &&
-        _rememberedEmail != null &&
-        _rememberedPassword != null &&
-        _rememberedRole != null) {
-      try {
-        final response = await _supabase.auth.signInWithPassword(
-          email: _rememberedEmail!,
-          password: _rememberedPassword!,
-        );
-        if (response.user != null) {
-          _currentUser = AppUser.fromSupabaseUser(response.user!);
-        }
-      } catch (_) {
-        // Silently ignore — user will just see the login page
-      }
+    // ── Step 5: Silent re-login if session still missing ──────────────────
+    // Covers: token expired, offline restart, first run after fresh install.
+    // _trySilentReLogin() tries session credentials first then Remember-Me.
+    if (_currentUser == null) {
+      await _trySilentReLogin();
     }
 
     _isInitialized = true;
@@ -434,7 +536,23 @@ class AuthProvider extends ChangeNotifier {
       _isLoading = false;
 
       if (response.user != null) {
+        // If email confirmation is enabled, Supabase returns a user but no
+        // active session until the user confirms via inbox link.
+        if (response.session == null) {
+          notifyListeners();
+          return SignUpResult(
+            success: true,
+            message: 'Account created. Please confirm your email, then login.',
+            user: null,
+            requiresEmailConfirmation: true,
+          );
+        }
+
         _currentUser = AppUser.fromSupabaseUser(response.user!);
+
+        // Persist credentials for silent re-login on app restart.
+        await _saveSessionCredentials(email, password, role);
+
         notifyListeners();
         return SignUpResult(
           success: true,
@@ -481,11 +599,18 @@ class AuthProvider extends ChangeNotifier {
       _isLoading = false;
 
       if (response.user != null) {
-        final storedRole =
-            (response.user!.userMetadata?['role'] as String?) ?? 'student';
+        final foundRole =
+            (response.user!.userMetadata?['role'] as String?)?.trim() ?? '';
+        final storedRole = foundRole.isNotEmpty ? foundRole : 'student';
+
+        debugPrint('Login role check: requested=$role, found=$storedRole');
+
         if (storedRole != role) {
           // Role mismatch — sign out immediately
           await _supabase.auth.signOut();
+          debugPrint(
+            'Login failed: expected role=$role, real role=$storedRole',
+          );
           notifyListeners();
           return LoginResult(
             success: false,
@@ -494,6 +619,9 @@ class AuthProvider extends ChangeNotifier {
         }
 
         _currentUser = AppUser.fromSupabaseUser(response.user!);
+        // Always persist credentials so silent re-login works for every user,
+        // regardless of the "Remember Me" checkbox setting.
+        await _saveSessionCredentials(email, password, role);
         notifyListeners();
         return LoginResult(
           success: true,
@@ -530,8 +658,15 @@ class AuthProvider extends ChangeNotifier {
   /// Sign out the current user.
   Future<void> logout() async {
     debugPrint('Logout called');
+    // Mark explicit logout BEFORE signing out so the auth listener knows
+    // not to silently re-login when it receives the signedOut event.
+    _isExplicitLogout = true;
+    // Erase all persistent credentials so an app restart lands on the login page.
+    await _clearSessionCredentials();
+    await setRememberMe(false);
     await _supabase.auth.signOut();
     _currentUser = null;
+    _isExplicitLogout = false;
     notifyListeners();
     debugPrint('Logout complete');
   }
@@ -599,8 +734,14 @@ class SignUpResult {
   final bool success;
   final String message;
   final AppUser? user;
+  final bool requiresEmailConfirmation;
 
-  SignUpResult({required this.success, required this.message, this.user});
+  SignUpResult({
+    required this.success,
+    required this.message,
+    this.user,
+    this.requiresEmailConfirmation = false,
+  });
 }
 
 class LoginResult {

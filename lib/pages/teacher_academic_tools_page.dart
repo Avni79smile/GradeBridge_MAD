@@ -4,7 +4,6 @@ import '../models/student_model.dart';
 import '../providers/theme_provider.dart';
 import 'student_cgpa_page.dart';
 import 'student_sgpa_page.dart';
-import 'student_analytics_page.dart';
 import 'student_percentage_page.dart';
 
 class TeacherAcademicToolsPage extends StatefulWidget {
@@ -58,6 +57,7 @@ class _TeacherAcademicToolsPageState extends State<TeacherAcademicToolsPage>
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
     final isDark = themeProvider.isDarkMode;
+    final teacherColors = themeProvider.teacherGradientColors;
 
     final tools = [
       _ToolItem(
@@ -110,9 +110,7 @@ class _TeacherAcademicToolsPageState extends State<TeacherAcademicToolsPage>
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: isDark
-                ? [const Color(0xFF0F172A), const Color(0xFF1E293B)]
-                : [const Color(0xFF4F46E5), const Color(0xFF7C3AED)],
+            colors: [teacherColors.first, teacherColors.last],
             stops: const [0.0, 1.0],
           ),
         ),

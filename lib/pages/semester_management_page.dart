@@ -31,6 +31,11 @@ class _SemesterManagementPageState extends State<SemesterManagementPage>
       CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
     );
     _animationController.forward();
+    // Always reload from Supabase when opening this page so data survives
+    // app restarts even if the startup load failed.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<StudentGradeProvider>().reloadFromDatabase();
+    });
   }
 
   @override
@@ -40,6 +45,8 @@ class _SemesterManagementPageState extends State<SemesterManagementPage>
   }
 
   void _showAddSemesterDialog(BuildContext context, bool isDark) {
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    final teacherAccent = themeProvider.teacherAccentColor;
     final nameController = TextEditingController();
 
     showDialog(
@@ -52,12 +59,12 @@ class _SemesterManagementPageState extends State<SemesterManagementPage>
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: const Color(0xFF6C63FF).withAlpha(30),
+                color: teacherAccent.withAlpha(30),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.add_circle_outline,
-                color: Color(0xFF6C63FF),
+                color: teacherAccent,
                 size: 24,
               ),
             ),
@@ -135,7 +142,7 @@ class _SemesterManagementPageState extends State<SemesterManagementPage>
               );
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF6C63FF),
+              backgroundColor: teacherAccent,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10),
               ),
@@ -240,19 +247,27 @@ class _SemesterManagementPageState extends State<SemesterManagementPage>
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
     final isDark = themeProvider.isDarkMode;
+    final teacherColors = themeProvider.teacherGradientColors;
+    final teacherAccent = themeProvider.teacherAccentColor;
 
     return Scaffold(
       backgroundColor: isDark
           ? const Color(0xFF121212)
           : const Color(0xFFF5F7FA),
       appBar: AppBar(
-        backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: teacherColors,
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+            ),
+          ),
+        ),
+        backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(
-            Icons.arrow_back_ios,
-            color: isDark ? Colors.white : Colors.black87,
-          ),
+          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
         title: Column(
@@ -260,8 +275,8 @@ class _SemesterManagementPageState extends State<SemesterManagementPage>
           children: [
             Text(
               '${widget.student.name}\'s Semesters',
-              style: TextStyle(
-                color: isDark ? Colors.white : Colors.black87,
+              style: const TextStyle(
+                color: Colors.white,
                 fontWeight: FontWeight.bold,
                 fontSize: 18,
               ),
@@ -269,26 +284,46 @@ class _SemesterManagementPageState extends State<SemesterManagementPage>
             Text(
               'Manage academic semesters',
               style: TextStyle(
-                color: isDark ? Colors.white60 : Colors.black54,
+                color: Colors.white.withAlpha(220),
                 fontSize: 12,
               ),
             ),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showAddSemesterDialog(context, isDark),
-        backgroundColor: const Color(0xFF6C63FF),
-        icon: const Icon(Icons.add_rounded, color: Colors.white),
-        label: const Text(
-          'Add Semester',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+      floatingActionButton: Consumer<StudentGradeProvider>(
+        builder: (context, gradeProvider, _) => FloatingActionButton.extended(
+          onPressed: gradeProvider.isLoadingData
+              ? null
+              : () => _showAddSemesterDialog(context, isDark),
+          backgroundColor: gradeProvider.isLoadingData
+              ? Colors.grey
+              : teacherAccent,
+          icon: const Icon(Icons.add_rounded, color: Colors.white),
+          label: const Text(
+            'Add Semester',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+          ),
         ),
       ),
       body: FadeTransition(
         opacity: _fadeAnimation,
         child: Consumer<StudentGradeProvider>(
           builder: (context, gradeProvider, _) {
+            // Show loading spinner while fetching from Supabase on restart.
+            if (gradeProvider.isLoadingData) {
+              return Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(color: teacherAccent),
+                    const SizedBox(height: 16),
+                    const Text('Loading semesters…'),
+                  ],
+                ),
+              );
+            }
+
             final gradeData = gradeProvider.getGradeData(widget.student.id);
             final semesters = gradeData?.semesters ?? [];
 
@@ -311,6 +346,7 @@ class _SemesterManagementPageState extends State<SemesterManagementPage>
   }
 
   Widget _buildEmptyState(bool isDark) {
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -318,13 +354,13 @@ class _SemesterManagementPageState extends State<SemesterManagementPage>
           Container(
             padding: const EdgeInsets.all(30),
             decoration: BoxDecoration(
-              color: const Color(0xFF6C63FF).withAlpha(20),
+              color: themeProvider.teacherAccentColor.withAlpha(20),
               shape: BoxShape.circle,
             ),
             child: Icon(
               Icons.calendar_month_rounded,
               size: 80,
-              color: const Color(0xFF6C63FF).withAlpha(150),
+              color: themeProvider.teacherAccentColor.withAlpha(150),
             ),
           ),
           const SizedBox(height: 24),

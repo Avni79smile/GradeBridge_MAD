@@ -24,6 +24,8 @@ class _BatchStudentsPageState extends State<BatchStudentsPage>
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
+  String get _normalizedSearchQuery => _searchQuery.trim().toLowerCase();
+
   @override
   void initState() {
     super.initState();
@@ -42,6 +44,87 @@ class _BatchStudentsPageState extends State<BatchStudentsPage>
     _animationController.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  List<Student> _getFilteredStudents(List<Student> allStudents) {
+    final query = _normalizedSearchQuery;
+    if (query.isEmpty) return allStudents;
+
+    final filtered = allStudents.where((student) {
+      final name = student.name.toLowerCase();
+      final rollNumber = student.rollNumber.toLowerCase();
+      return name.contains(query) || rollNumber.contains(query);
+    }).toList();
+
+    filtered.sort((a, b) {
+      final scoreComparison = _getSearchMatchScore(
+        b,
+        query,
+      ).compareTo(_getSearchMatchScore(a, query));
+      if (scoreComparison != 0) return scoreComparison;
+
+      final nameComparison = a.name.toLowerCase().compareTo(
+        b.name.toLowerCase(),
+      );
+      if (nameComparison != 0) return nameComparison;
+
+      return a.rollNumber.toLowerCase().compareTo(b.rollNumber.toLowerCase());
+    });
+
+    return filtered;
+  }
+
+  int _getSearchMatchScore(Student student, String query) {
+    final name = student.name.toLowerCase();
+    final rollNumber = student.rollNumber.toLowerCase();
+
+    if (name == query || rollNumber == query) return 5;
+    if (name.startsWith(query) || rollNumber.startsWith(query)) return 4;
+    if (name.split(' ').any((part) => part.startsWith(query))) return 3;
+    if (rollNumber.contains(query)) return 2;
+    if (name.contains(query)) return 1;
+    return 0;
+  }
+
+  List<TextSpan> _buildHighlightedSpans({
+    required String text,
+    required String query,
+    required TextStyle baseStyle,
+    required TextStyle highlightStyle,
+  }) {
+    if (query.isEmpty) {
+      return [TextSpan(text: text, style: baseStyle)];
+    }
+
+    final lowerText = text.toLowerCase();
+    final lowerQuery = query.toLowerCase();
+    final spans = <TextSpan>[];
+    var start = 0;
+
+    while (true) {
+      final matchIndex = lowerText.indexOf(lowerQuery, start);
+      if (matchIndex == -1) {
+        spans.add(TextSpan(text: text.substring(start), style: baseStyle));
+        break;
+      }
+
+      if (matchIndex > start) {
+        spans.add(
+          TextSpan(text: text.substring(start, matchIndex), style: baseStyle),
+        );
+      }
+
+      spans.add(
+        TextSpan(
+          text: text.substring(matchIndex, matchIndex + query.length),
+          style: highlightStyle,
+        ),
+      );
+
+      start = matchIndex + query.length;
+    }
+
+    return spans;
   }
 
   void _showAddStudentDialog(bool isDark) {
@@ -733,6 +816,8 @@ class _BatchStudentsPageState extends State<BatchStudentsPage>
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
     final isDark = themeProvider.isDarkMode;
+    final teacherColors = themeProvider.teacherGradientColors;
+    final teacherAccent = themeProvider.teacherAccentColor;
 
     return Scaffold(
       backgroundColor: isDark
@@ -746,9 +831,7 @@ class _BatchStudentsPageState extends State<BatchStudentsPage>
             stretch: true,
             elevation: 0,
             forceElevated: innerBoxIsScrolled,
-            backgroundColor: isDark
-                ? const Color(0xFF1E1B4B)
-                : const Color(0xFF1E3A8A),
+            backgroundColor: teacherColors.first,
             leading: IconButton(
               onPressed: () => Navigator.pop(context),
               icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
@@ -791,27 +874,15 @@ class _BatchStudentsPageState extends State<BatchStudentsPage>
                       return Center(
                         child: CircularProgressIndicator(
                           color: isDark
-                              ? const Color(0xFF6C63FF)
-                              : const Color(0xFF3B82F6),
+                              ? themeProvider.teacherAccentStrongColor
+                              : teacherAccent,
                         ),
                       );
                     }
                     final all = studentProvider.getStudentsByBatchId(
                       widget.batch.id,
                     );
-                    final filtered = _searchQuery.isEmpty
-                        ? all
-                        : all
-                              .where(
-                                (s) =>
-                                    s.name.toLowerCase().contains(
-                                      _searchQuery.toLowerCase(),
-                                    ) ||
-                                    s.rollNumber.toLowerCase().contains(
-                                      _searchQuery.toLowerCase(),
-                                    ),
-                              )
-                              .toList();
+                    final filtered = _getFilteredStudents(all);
                     if (all.isEmpty) return _buildEmptyState(isDark);
                     if (filtered.isEmpty) return _buildNoResults(isDark);
                     return _buildStudentList(filtered, isDark);
@@ -825,12 +896,10 @@ class _BatchStudentsPageState extends State<BatchStudentsPage>
       floatingActionButton: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(30),
-          gradient: const LinearGradient(
-            colors: [Color(0xFF10B981), Color(0xFF059669)],
-          ),
+          gradient: LinearGradient(colors: teacherColors.sublist(1)),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF10B981).withAlpha(90),
+              color: teacherAccent.withAlpha(90),
               blurRadius: 20,
               offset: const Offset(0, 8),
             ),
@@ -851,17 +920,10 @@ class _BatchStudentsPageState extends State<BatchStudentsPage>
   }
 
   Widget _buildHeader(bool isDark) {
-    final gradientColors = isDark
-        ? [
-            const Color(0xFF1E1B4B),
-            const Color(0xFF312E81),
-            const Color(0xFF4C1D95),
-          ]
-        : [
-            const Color(0xFF1E3A8A),
-            const Color(0xFF1D4ED8),
-            const Color(0xFF7C3AED),
-          ];
+    final gradientColors = Provider.of<ThemeProvider>(
+      context,
+      listen: false,
+    ).teacherGradientColors;
 
     return Container(
       decoration: BoxDecoration(
@@ -1017,53 +1079,74 @@ class _BatchStudentsPageState extends State<BatchStudentsPage>
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
       color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
-      child: TextField(
-        controller: _searchController,
-        onChanged: (q) => setState(() => _searchQuery = q),
-        style: TextStyle(
-          color: isDark ? Colors.white : const Color(0xFF1E293B),
-          fontSize: 15,
-        ),
-        decoration: InputDecoration(
-          hintText: 'Search by name or roll number...',
-          hintStyle: TextStyle(
-            color: isDark ? Colors.white38 : Colors.grey[400],
-            fontSize: 14,
-          ),
-          prefixIcon: Icon(
-            Icons.search_rounded,
-            color: isDark ? Colors.white38 : Colors.grey[400],
-          ),
-          suffixIcon: _searchQuery.isNotEmpty
-              ? IconButton(
-                  icon: Icon(
-                    Icons.close_rounded,
-                    color: isDark ? Colors.white38 : Colors.grey[400],
-                  ),
-                  onPressed: () {
-                    _searchController.clear();
-                    setState(() => _searchQuery = '');
-                  },
-                )
-              : null,
-          filled: true,
-          fillColor: isDark ? const Color(0xFF1E293B) : Colors.white,
-          contentPadding: const EdgeInsets.symmetric(vertical: 14),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: BorderSide.none,
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: BorderSide(
-              color: isDark ? Colors.white12 : const Color(0xFFE2E8F0),
+      child: Column(
+        children: [
+          TextField(
+            controller: _searchController,
+            onChanged: (q) => setState(() => _searchQuery = q),
+            style: TextStyle(
+              color: isDark ? Colors.white : const Color(0xFF1E293B),
+              fontSize: 15,
+            ),
+            decoration: InputDecoration(
+              hintText: 'Search by name or roll number...',
+              hintStyle: TextStyle(
+                color: isDark ? Colors.white38 : Colors.grey[400],
+                fontSize: 14,
+              ),
+              prefixIcon: Icon(
+                Icons.search_rounded,
+                color: isDark ? Colors.white38 : Colors.grey[400],
+              ),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: Icon(
+                        Icons.close_rounded,
+                        color: isDark ? Colors.white38 : Colors.grey[400],
+                      ),
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() => _searchQuery = '');
+                      },
+                    )
+                  : null,
+              filled: true,
+              fillColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+              contentPadding: const EdgeInsets.symmetric(vertical: 14),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(
+                  color: isDark ? Colors.white12 : const Color(0xFFE2E8F0),
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(
+                  color: Color(0xFF3B82F6),
+                  width: 1.5,
+                ),
+              ),
             ),
           ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: Color(0xFF3B82F6), width: 1.5),
-          ),
-        ),
+          if (_normalizedSearchQuery.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Showing best matches first for "${_searchQuery.trim()}"',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white54 : const Color(0xFF64748B),
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -1100,34 +1183,19 @@ class _BatchStudentsPageState extends State<BatchStudentsPage>
             ),
             const SizedBox(height: 8),
             Text(
-              'Try a different name or roll number',
+              _normalizedSearchQuery.isEmpty
+                  ? 'Try a different name or roll number'
+                  : 'No student found for "${_searchQuery.trim()}"',
               style: TextStyle(
                 fontSize: 14,
                 color: isDark ? Colors.white38 : Colors.grey[400],
               ),
+              textAlign: TextAlign.center,
             ),
           ],
         ),
       ),
     );
-  }
-
-  String _formatStudentDate(DateTime date) {
-    final months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
 
   Widget _buildEmptyState(bool isDark) {
@@ -1212,6 +1280,30 @@ class _BatchStudentsPageState extends State<BatchStudentsPage>
       const Color(0xFF06B6D4),
     ];
     final color = colors[index % colors.length];
+    final query = _normalizedSearchQuery;
+    final isHighlighted =
+        query.isNotEmpty && _getSearchMatchScore(student, query) > 0;
+    final titleStyle = TextStyle(
+      fontSize: 16,
+      fontWeight: FontWeight.w700,
+      color: isDark ? Colors.white : const Color(0xFF1E293B),
+      letterSpacing: 0.1,
+    );
+    final titleHighlightStyle = titleStyle.copyWith(
+      color: color,
+      backgroundColor: color.withAlpha(isDark ? 40 : 28),
+      fontWeight: FontWeight.w800,
+    );
+    final rollStyle = TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.w700,
+      color: color,
+      letterSpacing: 0.2,
+    );
+    final rollHighlightStyle = rollStyle.copyWith(
+      backgroundColor: color.withAlpha(isDark ? 36 : 28),
+      fontWeight: FontWeight.w800,
+    );
 
     return TweenAnimationBuilder<double>(
       key: ValueKey(student.id),
@@ -1229,10 +1321,18 @@ class _BatchStudentsPageState extends State<BatchStudentsPage>
         decoration: BoxDecoration(
           color: isDark ? const Color(0xFF1E1E2E) : Colors.white,
           borderRadius: BorderRadius.circular(18),
+          border: isHighlighted
+              ? Border.all(
+                  color: color.withAlpha(isDark ? 170 : 120),
+                  width: 1.4,
+                )
+              : null,
           boxShadow: [
             BoxShadow(
-              color: color.withAlpha(isDark ? 32 : 22),
-              blurRadius: 20,
+              color: color.withAlpha(
+                isHighlighted ? (isDark ? 54 : 42) : (isDark ? 32 : 22),
+              ),
+              blurRadius: isHighlighted ? 26 : 20,
               offset: const Offset(0, 6),
               spreadRadius: 0,
             ),
@@ -1304,15 +1404,14 @@ class _BatchStudentsPageState extends State<BatchStudentsPage>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          student.name,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: isDark
-                                ? Colors.white
-                                : const Color(0xFF1E293B),
-                            letterSpacing: 0.1,
+                        RichText(
+                          text: TextSpan(
+                            children: _buildHighlightedSpans(
+                              text: student.name,
+                              query: query,
+                              baseStyle: titleStyle,
+                              highlightStyle: titleHighlightStyle,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 6),
@@ -1330,13 +1429,14 @@ class _BatchStudentsPageState extends State<BatchStudentsPage>
                             children: [
                               Icon(Icons.tag_rounded, size: 13, color: color),
                               const SizedBox(width: 4),
-                              Text(
-                                student.rollNumber,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                  color: color,
-                                  letterSpacing: 0.2,
+                              RichText(
+                                text: TextSpan(
+                                  children: _buildHighlightedSpans(
+                                    text: student.rollNumber,
+                                    query: query,
+                                    baseStyle: rollStyle,
+                                    highlightStyle: rollHighlightStyle,
+                                  ),
                                 ),
                               ),
                             ],

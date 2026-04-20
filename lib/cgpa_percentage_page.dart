@@ -99,6 +99,7 @@ class _CGPAPercentagePageState extends State<CGPAPercentagePage> {
 
     // Save calculation to history
     final newRecord = CalculationRecord(
+      id: DateTime.now().millisecondsSinceEpoch,
       calculationType: 'CGPA',
       result: calculatedCGPA,
       subjects: subjectsList,

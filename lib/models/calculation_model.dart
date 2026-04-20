@@ -55,9 +55,9 @@ class CalculationRecord {
 
   factory CalculationRecord.fromMap(Map<String, dynamic> map) {
     return CalculationRecord(
-      id: map['id'],
+      id: map['id'] as int?,
       calculationType: map['calculationType'] ?? 'CGPA',
-      result: map['result'] ?? 0.0,
+      result: (map['result'] as num?)?.toDouble() ?? 0.0,
       subjects:
           (map['subjects'] as List<dynamic>?)
               ?.map((s) => Subject.fromMap(s as Map<String, dynamic>))

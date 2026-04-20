@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/calculation_model.dart';
 import '../models/student_model.dart';
 import '../models/student_grade_model.dart';
+import '../providers/calculation_history_provider.dart';
 import '../providers/theme_provider.dart';
 import '../providers/student_grade_provider.dart';
 
@@ -41,6 +43,7 @@ class _StudentCgpaPageState extends State<StudentCgpaPage> {
   final _semNameController = TextEditingController();
   final List<_CgpaSubjectEntry> _entries = [_CgpaSubjectEntry()];
   bool _calculated = false;
+  bool _semesterConfirmed = false;
 
   @override
   void initState() {
@@ -48,6 +51,10 @@ class _StudentCgpaPageState extends State<StudentCgpaPage> {
     if (widget.initialSemesterName != null &&
         widget.initialSemesterName!.isNotEmpty) {
       _semNameController.text = widget.initialSemesterName!;
+      _semesterConfirmed = true;
+    }
+    if (widget.existingSemesterId != null) {
+      _semesterConfirmed = true;
     }
   }
 
@@ -103,6 +110,27 @@ class _StudentCgpaPageState extends State<StudentCgpaPage> {
   }
 
   void _calculateFromForm() {
+    if (!_semesterConfirmed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please confirm semester first'),
+          backgroundColor: Color(0xFFEF4444),
+        ),
+      );
+      return;
+    }
+
+    final semName = _semNameController.text.trim();
+    if (semName.isEmpty && widget.existingSemesterId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter semester name first'),
+          backgroundColor: Color(0xFFEF4444),
+        ),
+      );
+      return;
+    }
+
     double totalPoints = 0;
     double totalCredits = 0;
     for (final e in _entries) {
@@ -148,7 +176,61 @@ class _StudentCgpaPageState extends State<StudentCgpaPage> {
     );
   }
 
-  void _save() {
+  List<Subject> _toHistorySubjects(List<StudentSubject> subjects) {
+    return subjects
+        .map(
+          (s) => Subject(
+            name: s.name,
+            score: s.gradePoints,
+            outOf: 10,
+            credit: s.credits.toDouble(),
+          ),
+        )
+        .toList();
+  }
+
+  Future<void> _addToHistory({
+    required String type,
+    required double result,
+    required String semesterName,
+    required List<StudentSubject> subjects,
+  }) async {
+    await Provider.of<CalculationHistoryProvider>(
+      context,
+      listen: false,
+    ).addCalculation(
+      CalculationRecord(
+        calculationType: type,
+        result: result,
+        subjects: _toHistorySubjects(subjects),
+        timestamp: DateTime.now(),
+        semesterName: semesterName,
+      ),
+    );
+  }
+
+  Future<void> _save() async {
+    if (!_semesterConfirmed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please confirm semester before saving'),
+          backgroundColor: Color(0xFFEF4444),
+        ),
+      );
+      return;
+    }
+
+    final semName = _semNameController.text.trim();
+    if (semName.isEmpty && widget.existingSemesterId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter semester name before saving'),
+          backgroundColor: Color(0xFFEF4444),
+        ),
+      );
+      return;
+    }
+
     if (!_calculated) return;
     final subjects = <StudentSubject>[];
     for (final e in _entries) {
@@ -188,11 +270,29 @@ class _StudentCgpaPageState extends State<StudentCgpaPage> {
 
     if (widget.existingSemesterId != null) {
       // Append mode: add subjects to the existing semester
-      provider.appendSubjectsToSemester(
+      await provider.appendSubjectsToSemester(
         widget.student.id,
         widget.existingSemesterId!,
         subjects,
       );
+      if (!mounted) return;
+
+      final updatedData = provider.getOrCreateGradeData(widget.student.id);
+      var semesterName = 'Semester';
+      for (final sem in updatedData.semesters) {
+        if (sem.id == widget.existingSemesterId) {
+          semesterName = sem.semesterName;
+          break;
+        }
+      }
+      await _addToHistory(
+        type: 'CGPA',
+        result: updatedData.cgpa,
+        semesterName: semesterName,
+        subjects: subjects,
+      );
+      if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Row(
@@ -225,18 +325,29 @@ class _StudentCgpaPageState extends State<StudentCgpaPage> {
       tc += s.credits;
     }
     final sgpa = tc > 0 ? tp / tc : 0.0;
+    final semesterName = _semNameController.text.trim().isNotEmpty
+        ? _semNameController.text.trim()
+        : 'Semester';
 
-    provider.addSemester(
+    await provider.addSemester(
       widget.student.id,
       StudentSemester(
-        semesterName: _semNameController.text.trim().isNotEmpty
-            ? _semNameController.text.trim()
-            : 'Semester',
+        semesterName: semesterName,
         subjects: subjects,
         sgpa: sgpa,
         toolUsed: 'cgpa',
       ),
     );
+    if (!mounted) return;
+
+    final updatedCgpa = provider.getOrCreateGradeData(widget.student.id).cgpa;
+    await _addToHistory(
+      type: 'CGPA',
+      result: updatedCgpa,
+      semesterName: semesterName,
+      subjects: subjects,
+    );
+    if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -441,35 +552,161 @@ class _StudentCgpaPageState extends State<StudentCgpaPage> {
             ),
           ),
           const SizedBox(height: 24),
-          Text(
-            'Subjects',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: isDark ? Colors.white : Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 16),
-          ...List.generate(_entries.length, (i) => _buildSubjectRow(isDark, i)),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: _addEntry,
-              icon: const Icon(Icons.add_circle_outline_rounded),
-              label: const Text('Add More Subject'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: const Color(0xFF6C63FF),
-                side: const BorderSide(color: Color(0xFF6C63FF)),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+          if (!_semesterConfirmed) ...[
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  final semName = _semNameController.text.trim();
+                  if (semName.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Please enter semester name first'),
+                        backgroundColor: Color(0xFFEF4444),
+                      ),
+                    );
+                    return;
+                  }
+                  setState(() {
+                    _semesterConfirmed = true;
+                  });
+                },
+                icon: const Icon(Icons.check_circle_outline),
+                label: const Text('Confirm Semester'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF6C63FF),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
             ),
-          ),
+            const SizedBox(height: 12),
+            Text(
+              'Please confirm semester before adding subjects.',
+              style: TextStyle(
+                fontSize: 14,
+                color: isDark ? Colors.white70 : Colors.black54,
+              ),
+            ),
+          ] else ...[
+            Text(
+              'Subjects',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 16),
+            ...List.generate(
+              _entries.length,
+              (i) => _buildSubjectRow(isDark, i),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _addEntry,
+                icon: const Icon(Icons.add_circle_outline_rounded),
+                label: const Text('Add More Subject'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF6C63FF),
+                  side: const BorderSide(color: Color(0xFF6C63FF)),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
+    );
+  }
+
+  void _showSemesterDetails(StudentSemester sem) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        final isDark = Provider.of<ThemeProvider>(
+          context,
+          listen: false,
+        ).isDarkMode;
+        return Container(
+          height: MediaQuery.of(context).size.height * 0.65,
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF151515) : Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    sem.semesterName.isNotEmpty
+                        ? sem.semesterName
+                        : 'Semester Details',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : Colors.black87,
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(
+                      Icons.close,
+                      color: isDark ? Colors.white70 : Colors.black54,
+                    ),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'SGPA: ${sem.sgpa.toStringAsFixed(2)} • ${sem.subjects.length} subjects',
+                style: TextStyle(
+                  color: isDark ? Colors.white70 : Colors.black54,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: ListView.separated(
+                  itemCount: sem.subjects.length,
+                  separatorBuilder: (context, index) => const Divider(),
+                  itemBuilder: (context, index) {
+                    final subject = sem.subjects[index];
+                    return ListTile(
+                      tileColor: isDark
+                          ? const Color(0xFF1E1E1E)
+                          : const Color(0xFFF8FAFC),
+                      title: Text(
+                        subject.name,
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                      subtitle: Text(
+                        'Grade: ${subject.grade} • Credits: ${subject.credits} • Points: ${subject.gradePoints.toStringAsFixed(1)}',
+                        style: TextStyle(
+                          color: isDark ? Colors.white54 : Colors.black54,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -479,66 +716,72 @@ class _StudentCgpaPageState extends State<StudentCgpaPage> {
     int idx,
     StudentGradeProvider provider,
   ) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: isDark ? Colors.white.withAlpha(15) : const Color(0xFFE2E8F0),
+    return GestureDetector(
+      onTap: () => _showSemesterDetails(sem),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isDark
+                ? Colors.white.withAlpha(15)
+                : const Color(0xFFE2E8F0),
+          ),
         ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: const Color(0xFF6C63FF).withAlpha(30),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Center(
-              child: Icon(
-                Icons.school_rounded,
-                color: Color(0xFF6C63FF),
-                size: 20,
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: const Color(0xFF6C63FF).withAlpha(30),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Center(
+                child: Icon(
+                  Icons.school_rounded,
+                  color: Color(0xFF6C63FF),
+                  size: 20,
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  sem.semesterName.isNotEmpty
-                      ? sem.semesterName
-                      : 'Semester ${idx + 1}',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: isDark ? Colors.white : Colors.black87,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    sem.semesterName.isNotEmpty
+                        ? sem.semesterName
+                        : 'Semester ${idx + 1}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: isDark ? Colors.white : Colors.black87,
+                    ),
                   ),
-                ),
-                Text(
-                  'SGPA: ${sem.sgpa.toStringAsFixed(2)} • ${sem.subjects.length} subjects',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: isDark ? Colors.white54 : const Color(0xFF64748B),
+                  Text(
+                    'SGPA: ${sem.sgpa.toStringAsFixed(2)} • ${sem.subjects.length} subjects',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isDark ? Colors.white54 : const Color(0xFF64748B),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          IconButton(
-            icon: const Icon(
-              Icons.delete_outline,
-              color: Color(0xFFEF4444),
-              size: 20,
+            IconButton(
+              icon: const Icon(
+                Icons.delete_outline,
+                color: Color(0xFFEF4444),
+                size: 20,
+              ),
+              onPressed: () =>
+                  provider.deleteSemester(widget.student.id, sem.id),
             ),
-            onPressed: () => provider.deleteSemester(widget.student.id, sem.id),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

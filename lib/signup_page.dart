@@ -94,10 +94,14 @@ class _SignUpPageState extends State<SignUpPage>
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(result.message)));
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const HomePage()),
-        );
+        if (result.user != null) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const HomePage()),
+          );
+        } else {
+          Navigator.pop(context);
+        }
       }
     } else {
       if (mounted) {
@@ -151,10 +155,14 @@ class _SignUpPageState extends State<SignUpPage>
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(result.message)));
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const TeacherHome()),
-        );
+        if (result.user != null) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const TeacherHome()),
+          );
+        } else {
+          Navigator.pop(context);
+        }
       }
     } else {
       if (mounted) {

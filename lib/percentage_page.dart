@@ -39,12 +39,67 @@ class _PercentagePageState extends State<PercentagePage> {
     double totalScored = 0;
     double totalOutOf = 0;
 
-    for (var subject in subjects) {
-      final score = double.tryParse(subject["score"]!.text) ?? 0;
-      final outOf = double.tryParse(subject["outOf"]!.text) ?? 100;
+    for (int i = 0; i < subjects.length; i++) {
+      final subject = subjects[i];
+      final scoreText = subject["score"]!.text.trim();
+      final outOfText = subject["outOf"]!.text.trim();
+
+      if (scoreText.isEmpty || outOfText.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Please fill Marks and Total Marks for Subject ${i + 1}.',
+            ),
+          ),
+        );
+        return;
+      }
+
+      final score = double.tryParse(scoreText);
+      final outOf = double.tryParse(outOfText);
+
+      if (score == null || outOf == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Enter valid numeric values for Subject ${i + 1}.'),
+          ),
+        );
+        return;
+      }
+
+      if (outOf <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Total Marks must be greater than 0 for Subject ${i + 1}.',
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (score < 0 || score > outOf) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Marks must be between 0 and Total Marks for Subject ${i + 1}.',
+            ),
+          ),
+        );
+        return;
+      }
 
       totalScored += score;
       totalOutOf += outOf;
+    }
+
+    if (totalOutOf <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please add at least one valid subject entry.'),
+        ),
+      );
+      return;
     }
 
     setState(() {

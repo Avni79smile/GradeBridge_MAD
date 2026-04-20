@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/calculation_model.dart';
 import '../models/student_model.dart';
+import '../providers/calculation_history_provider.dart';
 import '../providers/theme_provider.dart';
 import '../providers/student_grade_provider.dart';
 
@@ -46,7 +48,7 @@ class _StudentPercentagePageState extends State<StudentPercentagePage> {
     super.dispose();
   }
 
-  void _calculatePercentage() {
+  Future<void> _calculatePercentage({bool saveToHistory = false}) async {
     final cgpa = double.tryParse(_cgpaController.text);
     if (cgpa == null) {
       setState(() => _percentage = null);
@@ -58,6 +60,38 @@ class _StudentPercentagePageState extends State<StudentPercentagePage> {
       _percentage = cgpa * factor;
       if (_percentage! > 100) _percentage = 100;
     });
+
+    if (!saveToHistory) return;
+
+    final semesterName = '${_selectedScale}-Point Scale';
+
+    await Provider.of<CalculationHistoryProvider>(
+      context,
+      listen: false,
+    ).addCalculation(
+      CalculationRecord(
+        calculationType: 'PERCENTAGE',
+        result: _percentage!,
+        subjects: [
+          Subject(
+            name: 'CGPA',
+            score: cgpa,
+            outOf: double.tryParse(_selectedScale) ?? 10,
+            credit: 1,
+          ),
+        ],
+        timestamp: DateTime.now(),
+        semesterName: semesterName,
+      ),
+    );
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Percentage conversion saved to history'),
+        backgroundColor: Color(0xFF10B981),
+      ),
+    );
   }
 
   @override
@@ -288,7 +322,7 @@ class _StudentPercentagePageState extends State<StudentPercentagePage> {
             width: double.infinity,
             height: 50,
             child: ElevatedButton.icon(
-              onPressed: _calculatePercentage,
+              onPressed: () => _calculatePercentage(saveToHistory: true),
               icon: const Icon(Icons.percent_rounded),
               label: const Text('Calculate Percentage'),
               style: ElevatedButton.styleFrom(

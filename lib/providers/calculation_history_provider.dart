@@ -14,10 +14,10 @@ class CalculationHistoryProvider extends ChangeNotifier {
   SupabaseClient get _db => Supabase.instance.client;
   String? get _userId => _db.auth.currentUser?.id;
 
-  /// Save current calculation list to Supabase (best-effort, silently ignored on error).
-  Future<void> _syncToSupabase() async {
+  /// Save current calculation list to Supabase. Returns true on success.
+  Future<bool> _syncToSupabase() async {
     final uid = _userId;
-    if (uid == null) return;
+    if (uid == null) return false;
     try {
       final json = _calculations.map((r) => r.toMap()).toList();
       await _db.from('user_calculations').upsert({
@@ -25,12 +25,15 @@ class CalculationHistoryProvider extends ChangeNotifier {
         'calculations': json,
         'last_updated': DateTime.now().toIso8601String(),
       }, onConflict: 'user_id');
-    } catch (_) {
-      // Table may not exist yet — local storage is the fallback.
+      return true;
+    } catch (e) {
+      debugPrint('Supabase sync failed (user_calculations): $e');
+      return false;
     }
   }
 
   /// Try to load from Supabase; fall back to SharedPreferences.
+  /// If local has data but Supabase is empty, re-uploads local → Supabase.
   Future<void> loadCalculations() async {
     _isLoading = true;
     notifyListeners();
@@ -43,7 +46,7 @@ class CalculationHistoryProvider extends ChangeNotifier {
             .select()
             .eq('user_id', uid)
             .limit(1);
-        if (rows.isNotEmpty) {
+        if ((rows as List).isNotEmpty) {
           final calcList = rows.first['calculations'] as List<dynamic>? ?? [];
           _calculations = calcList
               .map(
@@ -52,19 +55,27 @@ class CalculationHistoryProvider extends ChangeNotifier {
                 ),
               )
               .toList();
-          // Keep local storage in sync.
-          final prefs = await _localStorageService.getAllCalculations();
-          if (prefs.isEmpty && _calculations.isNotEmpty) {
-            for (final rec in _calculations) {
-              await _localStorageService.insertCalculation(rec);
-            }
+          // Mirror to local storage so offline access works.
+          await _localStorageService.deleteAllCalculations();
+          for (final rec in _calculations) {
+            await _localStorageService.insertCalculation(rec);
           }
           _isLoading = false;
           notifyListeners();
           return;
         }
-      } catch (_) {
-        // Table may not exist — fall through to local storage.
+        // Supabase table exists but no row yet — check local and upload.
+        final localCalcs = await _localStorageService.getAllCalculations();
+        if (localCalcs.isNotEmpty) {
+          _calculations = localCalcs;
+          // Re-upload local data to Supabase so it persists there too.
+          await _syncToSupabase();
+          _isLoading = false;
+          notifyListeners();
+          return;
+        }
+      } catch (e) {
+        debugPrint('Error loading from Supabase, falling back to local: $e');
       }
     }
 
@@ -74,28 +85,33 @@ class CalculationHistoryProvider extends ChangeNotifier {
   }
 
   Future<void> addCalculation(CalculationRecord record) async {
+    // Save locally first for immediate availability.
     await _localStorageService.insertCalculation(record);
     _calculations = await _localStorageService.getAllCalculations();
-    await _syncToSupabase();
     notifyListeners();
+    // Then persist to Supabase (awaited so data isn't lost on app close).
+    await _syncToSupabase();
   }
 
   Future<void> deleteCalculation(int id) async {
     await _localStorageService.deleteCalculation(id);
     _calculations = await _localStorageService.getAllCalculations();
-    await _syncToSupabase();
     notifyListeners();
+    await _syncToSupabase();
   }
 
   Future<void> deleteAllCalculations() async {
     await _localStorageService.deleteAllCalculations();
     _calculations = [];
-    await _syncToSupabase();
     notifyListeners();
+    await _syncToSupabase();
   }
 
   List<CalculationRecord> getCalculationsByType(String type) {
-    return _calculations.where((c) => c.calculationType == type).toList();
+    final normalizedType = type.trim().toUpperCase();
+    return _calculations
+        .where((c) => c.calculationType.trim().toUpperCase() == normalizedType)
+        .toList();
   }
 
   double getAverageGPA() {

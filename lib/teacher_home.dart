@@ -5,6 +5,7 @@ import 'providers/batch_provider.dart';
 import 'providers/student_provider.dart';
 import 'providers/auth_provider.dart';
 import 'pages/batch_management_page.dart';
+import 'pages/settings_page.dart';
 import 'login_page.dart';
 
 class TeacherHome extends StatefulWidget {
@@ -16,6 +17,7 @@ class TeacherHome extends StatefulWidget {
 
 class _TeacherHomeState extends State<TeacherHome>
     with SingleTickerProviderStateMixin {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late AnimationController _animationController;
   late List<Animation<Offset>> _slideAnimations;
 
@@ -56,6 +58,21 @@ class _TeacherHomeState extends State<TeacherHome>
     super.dispose();
   }
 
+  List<Color> _avatarColors(String name) {
+    final gradients = [
+      [const Color(0xFF667EEA), const Color(0xFF764BA2)],
+      [const Color(0xFF6366F1), const Color(0xFF818CF8)],
+      [const Color(0xFFEC4899), const Color(0xFFF472B6)],
+      [const Color(0xFF10B981), const Color(0xFF34D399)],
+      [const Color(0xFFF59E0B), const Color(0xFFFBBF24)],
+      [const Color(0xFF3B82F6), const Color(0xFF60A5FA)],
+      [const Color(0xFFEF4444), const Color(0xFFF87171)],
+      [const Color(0xFF8B5CF6), const Color(0xFFA78BFA)],
+    ];
+    if (name.isEmpty) return gradients[0];
+    return gradients[name.codeUnitAt(0) % gradients.length];
+  }
+
   void _showProfileSheet(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
     final isDark = themeProvider.isDarkMode;
@@ -90,15 +107,15 @@ class _TeacherHomeState extends State<TeacherHome>
                 width: 80,
                 height: 80,
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+                  gradient: LinearGradient(
+                    colors: _avatarColors(user?.name ?? ''),
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
                   borderRadius: BorderRadius.circular(24),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF667EEA).withAlpha(80),
+                      color: _avatarColors(user?.name ?? '')[0].withAlpha(80),
                       blurRadius: 20,
                       offset: const Offset(0, 8),
                     ),
@@ -135,13 +152,17 @@ class _TeacherHomeState extends State<TeacherHome>
                   vertical: 4,
                 ),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF667EEA).withAlpha(30),
+                  gradient: LinearGradient(
+                    colors: _avatarColors(user?.name ?? ''),
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: const Text(
                   'Teacher',
                   style: TextStyle(
-                    color: Color(0xFF667EEA),
+                    color: Colors.white,
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                   ),
@@ -638,28 +659,694 @@ class _TeacherHomeState extends State<TeacherHome>
     );
   }
 
+  void _showThemePicker(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => Consumer<ThemeProvider>(
+        builder: (context, themeProvider, _) {
+          final isDark = themeProvider.isDarkMode;
+          return Container(
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
+            ),
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white24 : Colors.black12,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'Choose Theme',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Personalize your dashboard',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isDark ? Colors.white54 : Colors.black45,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? Colors.white.withAlpha(10)
+                        : Colors.grey.withAlpha(20),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF6366F1).withAlpha(30),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(
+                          isDark
+                              ? Icons.dark_mode_rounded
+                              : Icons.light_mode_rounded,
+                          color: const Color(0xFF6366F1),
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          isDark ? 'Dark Mode' : 'Light Mode',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: isDark ? Colors.white : Colors.black87,
+                          ),
+                        ),
+                      ),
+                      Switch(
+                        value: isDark,
+                        onChanged: (_) => themeProvider.toggleTheme(),
+                        activeColor: const Color(0xFF6366F1),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'ACCENT COLOR',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.4,
+                      color: isDark ? Colors.white54 : Colors.black38,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                GridView.count(
+                  crossAxisCount: 3,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                  childAspectRatio: 1.7,
+                  children: AppThemeColor.values.map((color) {
+                    final isSelected = themeProvider.teacherThemeColor == color;
+                    final grads = ThemeProvider.lightGradients[color]!;
+                    final name = ThemeProvider.themeColorNames[color]!;
+                    return GestureDetector(
+                      onTap: () => themeProvider.setTeacherThemeColor(color),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [grads[0], grads[2]],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: isSelected
+                                ? Colors.white
+                                : Colors.transparent,
+                            width: 3,
+                          ),
+                          boxShadow: isSelected
+                              ? [
+                                  BoxShadow(
+                                    color: grads[1].withAlpha(120),
+                                    blurRadius: 12,
+                                    spreadRadius: 2,
+                                  ),
+                                ]
+                              : [],
+                        ),
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Text(
+                              name,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            if (isSelected)
+                              Positioned(
+                                top: 5,
+                                right: 5,
+                                child: Container(
+                                  width: 18,
+                                  height: 18,
+                                  decoration: const BoxDecoration(
+                                    color: Colors.white,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.check_rounded,
+                                    size: 12,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showClassPulseSheet(BuildContext context) {
+    final isDark = Provider.of<ThemeProvider>(
+      context,
+      listen: false,
+    ).isDarkMode;
+    final batchProvider = Provider.of<BatchProvider>(context, listen: false);
+    final studentProvider = Provider.of<StudentProvider>(
+      context,
+      listen: false,
+    );
+
+    final batchCount = batchProvider.batches.length;
+    final studentCount = studentProvider.students.length;
+    final avgStudentsPerBatch = batchCount == 0
+        ? 0.0
+        : studentCount / batchCount;
+
+    Widget statTile({
+      required IconData icon,
+      required String title,
+      required String value,
+      required Color color,
+    }) {
+      return Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isDark
+              ? Colors.white.withAlpha(10)
+              : Colors.grey.withAlpha(20),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isDark ? Colors.white12 : Colors.black12,
+            width: 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: color.withAlpha(35),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isDark ? Colors.white54 : Colors.black45,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: isDark ? Colors.white : Colors.black87,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => Container(
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white24 : Colors.black12,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Class Pulse',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: isDark ? Colors.white : Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Quick overview of your current class data',
+              style: TextStyle(
+                fontSize: 13,
+                color: isDark ? Colors.white54 : Colors.black45,
+              ),
+            ),
+            const SizedBox(height: 18),
+            statTile(
+              icon: Icons.groups_rounded,
+              title: 'Total Batches',
+              value: '$batchCount',
+              color: const Color(0xFF3B82F6),
+            ),
+            const SizedBox(height: 10),
+            statTile(
+              icon: Icons.people_alt_rounded,
+              title: 'Total Students',
+              value: '$studentCount',
+              color: const Color(0xFF10B981),
+            ),
+            const SizedBox(height: 10),
+            statTile(
+              icon: Icons.auto_graph_rounded,
+              title: 'Average Students / Batch',
+              value: avgStudentsPerBatch.toStringAsFixed(1),
+              color: const Color(0xFF8B5CF6),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDrawer(BuildContext context, bool isDark) {
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    final user = context.watch<AuthProvider>().currentUser;
+    final initial = user?.name.isNotEmpty == true
+        ? user!.name[0].toUpperCase()
+        : 'T';
+
+    final navItems = [
+      {
+        'icon': Icons.auto_graph_rounded,
+        'label': 'Class Pulse',
+        'subtitle': 'Live batch and student snapshot',
+        'color': const Color(0xFF3B82F6),
+        'action': () {
+          Navigator.pop(context);
+          _showClassPulseSheet(context);
+        },
+      },
+      {
+        'icon': Icons.palette_rounded,
+        'label': 'Theme Studio',
+        'subtitle': 'Customize teacher colors instantly',
+        'color': const Color(0xFF8B5CF6),
+        'action': () {
+          Navigator.pop(context);
+          _showThemePicker(context);
+        },
+      },
+      {
+        'icon': Icons.person_rounded,
+        'label': 'Profile Card',
+        'subtitle': 'View teacher profile details',
+        'color': const Color(0xFF06B6D4),
+        'action': () {
+          Navigator.pop(context);
+          _showProfileSheet(context);
+        },
+      },
+      {
+        'icon': Icons.settings_rounded,
+        'label': 'Settings',
+        'subtitle': 'App preferences',
+        'color': const Color(0xFFF59E0B),
+        'action': () {
+          Navigator.pop(context);
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const SettingsPage()),
+          );
+        },
+      },
+    ];
+
+    return Drawer(
+      width: 300,
+      backgroundColor: Colors.transparent,
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: themeProvider.teacherGradientColors.sublist(0, 2),
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── Header ──────────────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
+                child: Row(
+                  children: [
+                    // Avatar
+                    Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: _avatarColors(user?.name ?? ''),
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(
+                          color: Colors.white.withAlpha(80),
+                          width: 2,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _avatarColors(
+                              user?.name ?? '',
+                            )[0].withAlpha(100),
+                            blurRadius: 16,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: Center(
+                        child: Text(
+                          initial,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            user?.name ?? 'Teacher',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withAlpha(40),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Text(
+                              'Teacher',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Close button
+                    IconButton(
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        color: Colors.white70,
+                        size: 22,
+                      ),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Divider
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+                child: Container(
+                  height: 1,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.transparent,
+                        Colors.white.withAlpha(60),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                child: Text(
+                  'NAVIGATION',
+                  style: TextStyle(
+                    color: Colors.white.withAlpha(120),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.4,
+                  ),
+                ),
+              ),
+
+              // ── Nav items ────────────────────────────────────────
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  itemCount: navItems.length,
+                  itemBuilder: (context, index) {
+                    final item = navItems[index];
+                    final color = item['color'] as Color;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Material(
+                        color: Colors.transparent,
+                        borderRadius: BorderRadius.circular(16),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(16),
+                          splashColor: color.withAlpha(60),
+                          highlightColor: color.withAlpha(30),
+                          onTap: item['action'] as VoidCallback,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
+                            ),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              color: Colors.white.withAlpha(15),
+                              border: Border.all(
+                                color: Colors.white.withAlpha(25),
+                                width: 1,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: color.withAlpha(50),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Icon(
+                                    item['icon'] as IconData,
+                                    color: color,
+                                    size: 22,
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        item['label'] as String,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        item['subtitle'] as String,
+                                        style: TextStyle(
+                                          color: Colors.white.withAlpha(150),
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: Colors.white.withAlpha(100),
+                                  size: 20,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              // ── Footer ───────────────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                child: Container(
+                  height: 1,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.transparent,
+                        Colors.white.withAlpha(60),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
+                child: Material(
+                  color: Colors.transparent,
+                  borderRadius: BorderRadius.circular(16),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    splashColor: const Color(0xFFEF4444).withAlpha(60),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showLogoutConfirmation(context);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 14,
+                      ),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        color: const Color(0xFFEF4444).withAlpha(30),
+                        border: Border.all(
+                          color: const Color(0xFFEF4444).withAlpha(60),
+                          width: 1,
+                        ),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(
+                            Icons.logout_rounded,
+                            color: Color(0xFFEF4444),
+                            size: 22,
+                          ),
+                          SizedBox(width: 14),
+                          Text(
+                            'Logout',
+                            style: TextStyle(
+                              color: Color(0xFFEF4444),
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
     final isDark = themeProvider.isDarkMode;
 
     return Scaffold(
+      key: _scaffoldKey,
+      drawer: _buildDrawer(context, isDark),
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: isDark
-                ? [
-                    const Color(0xFF0F172A),
-                    const Color(0xFF1E293B),
-                    const Color(0xFF334155),
-                  ]
-                : [
-                    const Color(0xFF1E3A8A),
-                    const Color(0xFF2563EB),
-                    const Color(0xFF3B82F6),
-                  ],
+            colors: themeProvider.teacherGradientColors,
             stops: const [0.0, 0.5, 1.0],
           ),
         ),
@@ -667,6 +1354,7 @@ class _TeacherHomeState extends State<TeacherHome>
           slivers: [
             // Custom AppBar
             SliverAppBar(
+              automaticallyImplyLeading: false,
               expandedHeight: 0,
               floating: true,
               pinned: true,
@@ -677,7 +1365,7 @@ class _TeacherHomeState extends State<TeacherHome>
                 children: [
                   IconButton(
                     icon: const Icon(Icons.menu_rounded, color: Colors.white),
-                    onPressed: () {},
+                    onPressed: () => _scaffoldKey.currentState?.openDrawer(),
                   ),
                   Expanded(
                     child: Consumer<AuthProvider>(
@@ -713,14 +1401,33 @@ class _TeacherHomeState extends State<TeacherHome>
                   ),
                   Consumer<ThemeProvider>(
                     builder: (context, themeProvider, _) {
-                      return IconButton(
-                        icon: Icon(
-                          themeProvider.isDarkMode
-                              ? Icons.light_mode_rounded
-                              : Icons.dark_mode_rounded,
-                          color: Colors.white,
+                      return GestureDetector(
+                        onTap: () => _showThemePicker(context),
+                        child: Container(
+                          width: 36,
+                          height: 36,
+                          margin: const EdgeInsets.only(right: 4),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: ThemeProvider
+                                  .lightGradients[themeProvider
+                                      .teacherThemeColor]!
+                                  .sublist(0, 2),
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: Colors.white.withAlpha(120),
+                              width: 1.5,
+                            ),
+                          ),
+                          child: const Icon(
+                            Icons.palette_rounded,
+                            color: Colors.white,
+                            size: 18,
+                          ),
                         ),
-                        onPressed: () => themeProvider.toggleTheme(),
                       );
                     },
                   ),
@@ -738,8 +1445,8 @@ class _TeacherHomeState extends State<TeacherHome>
                           height: 38,
                           margin: const EdgeInsets.only(left: 8),
                           decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+                            gradient: LinearGradient(
+                              colors: _avatarColors(user?.name ?? ''),
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                             ),
@@ -786,9 +1493,11 @@ class _TeacherHomeState extends State<TeacherHome>
   }
 
   Widget _buildBatchCard() {
-    return Consumer<BatchProvider>(
-      builder: (context, batchProvider, _) {
+    return Consumer2<BatchProvider, ThemeProvider>(
+      builder: (context, batchProvider, themeProvider, _) {
         final batchCount = batchProvider.batches.length;
+        final cardColors =
+            ThemeProvider.lightGradients[themeProvider.teacherThemeColor]!;
         return Material(
           color: Colors.transparent,
           child: InkWell(
@@ -796,22 +1505,22 @@ class _TeacherHomeState extends State<TeacherHome>
               context,
               MaterialPageRoute(builder: (_) => const BatchManagementPage()),
             ),
-            splashColor: const Color(0xFF3B82F6).withAlpha(30),
-            highlightColor: const Color(0xFF3B82F6).withAlpha(20),
+            splashColor: cardColors[1].withAlpha(30),
+            highlightColor: cardColors[1].withAlpha(20),
             borderRadius: BorderRadius.circular(28),
             child: Container(
               width: double.infinity,
               constraints: const BoxConstraints(maxWidth: 320),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(28),
-                gradient: const LinearGradient(
+                gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [Color(0xFF3B82F6), Color(0xFF1E40AF)],
+                  colors: [cardColors[2], cardColors[0]],
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF3B82F6).withAlpha(100),
+                    color: cardColors[1].withAlpha(100),
                     blurRadius: 40,
                     offset: const Offset(0, 16),
                   ),

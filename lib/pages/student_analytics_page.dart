@@ -4,6 +4,8 @@ import 'package:fl_chart/fl_chart.dart';
 import '../models/student_model.dart';
 import '../providers/theme_provider.dart';
 import '../providers/student_grade_provider.dart';
+import '../services/analysis_pdf_service.dart';
+import 'teacher_subject_analysis_page.dart';
 
 class StudentAnalyticsPage extends StatelessWidget {
   final Student student;
@@ -22,20 +24,59 @@ class StudentAnalyticsPage extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
         elevation: 0,
-        leading: IconButton(
-          icon: Icon(
-            Icons.arrow_back_ios,
-            color: isDark ? Colors.white : Colors.black87,
-          ),
-          onPressed: () => Navigator.pop(context),
+        leadingWidth: 92,
+        leading: Row(
+          children: [
+            IconButton(
+              icon: Icon(
+                Icons.arrow_back_ios,
+                color: isDark ? Colors.white : Colors.black87,
+              ),
+              onPressed: () => Navigator.pop(context),
+            ),
+            IconButton(
+              tooltip: 'Export PDF',
+              icon: const Icon(Icons.picture_as_pdf_rounded, size: 20),
+              color: const Color(0xFFEF4444),
+              onPressed: () => _exportSemesterAnalysis(context),
+            ),
+          ],
         ),
         title: Text(
-          'Analytics',
+          'Semester-wise Analysis',
           style: TextStyle(
             color: isDark ? Colors.white : Colors.black87,
             fontWeight: FontWeight.bold,
+            fontSize: 16,
           ),
         ),
+        actions: [
+          Tooltip(
+            message: 'Switch to Subject-wise',
+            child: Container(
+              margin: const EdgeInsets.only(right: 8),
+              child: TextButton.icon(
+                onPressed: () => _showSemesterPicker(context, isDark),
+                icon: const Icon(Icons.subject_rounded, size: 18),
+                label: const Text(
+                  'Subject-wise',
+                  style: TextStyle(fontSize: 12),
+                ),
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFFFF6B6B),
+                  backgroundColor: const Color(0xFFFF6B6B).withOpacity(0.1),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
       body: Consumer<StudentGradeProvider>(
         builder: (context, provider, _) {
@@ -74,6 +115,198 @@ class StudentAnalyticsPage extends StatelessWidget {
             ),
           );
         },
+      ),
+    );
+  }
+
+  Future<void> _exportSemesterAnalysis(BuildContext context) async {
+    try {
+      final gradeData = context
+          .read<StudentGradeProvider>()
+          .getOrCreateGradeData(student.id);
+      if (gradeData.semesters.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No analysis data to export yet.')),
+        );
+        return;
+      }
+
+      await AnalysisPdfService.exportSemesterWiseAnalysis(
+        student: student,
+        gradeData: gradeData,
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Semester analysis PDF generated and saved.'),
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to export PDF: $e')));
+    }
+  }
+
+  void _showSemesterPicker(BuildContext context, bool isDark) {
+    final provider = Provider.of<StudentGradeProvider>(context, listen: false);
+    final semesters = provider.getOrCreateGradeData(student.id).semesters;
+    if (semesters.isEmpty) return;
+
+    final nav = Navigator.of(context);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => Container(
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white24 : Colors.black12,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Select Semester',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Choose a semester for subject-wise analysis',
+              style: TextStyle(
+                fontSize: 13,
+                color: isDark ? Colors.white54 : Colors.black45,
+              ),
+            ),
+            const SizedBox(height: 20),
+            ...semesters.asMap().entries.map((entry) {
+              final idx = entry.key;
+              final sem = entry.value;
+              final color = _getSgpaColor(sem.sgpa);
+              final semName = sem.semesterName.isNotEmpty
+                  ? sem.semesterName
+                  : 'Semester ${idx + 1}';
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Material(
+                  color: Colors.transparent,
+                  borderRadius: BorderRadius.circular(14),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      nav.pushReplacement(
+                        MaterialPageRoute(
+                          builder: (_) => TeacherSubjectAnalysisPage(
+                            student: student,
+                            semester: sem,
+                            semesterIndex: idx + 1,
+                            onSwitchToSemesterWise: () => nav.pushReplacement(
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    StudentAnalyticsPage(student: student),
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: isDark
+                              ? Colors.white12
+                              : const Color(0xFFE2E8F0),
+                          width: 1.5,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: color.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              'S${idx + 1}',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: color,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  semName,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                    color: isDark
+                                        ? Colors.white
+                                        : Colors.black87,
+                                  ),
+                                ),
+                                Text(
+                                  '${sem.subjects.length} subjects  \u2022  ${sem.totalCredits} credits',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: isDark
+                                        ? Colors.white54
+                                        : Colors.black45,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Text(
+                            sem.sgpa.toStringAsFixed(2),
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: color,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Icon(
+                            Icons.arrow_forward_ios_rounded,
+                            size: 14,
+                            color: isDark ? Colors.white38 : Colors.black26,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }),
+            const SizedBox(height: 8),
+          ],
+        ),
       ),
     );
   }

@@ -18,6 +18,21 @@ class _CGPAPageState extends State<CGPAPage> {
   void initState() {
     super.initState();
     addSubject();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadLatestSavedCgpa();
+    });
+  }
+
+  Future<void> _loadLatestSavedCgpa() async {
+    final provider = context.read<CalculationHistoryProvider>();
+    await provider.loadCalculations();
+    final cgpaRecords = provider.getCalculationsByType('CGPA');
+    if (!mounted || cgpaRecords.isEmpty) return;
+
+    cgpaRecords.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    setState(() {
+      cgpa = cgpaRecords.first.result;
+    });
   }
 
   void addSubject() {
@@ -26,7 +41,7 @@ class _CGPAPageState extends State<CGPAPage> {
         "name": TextEditingController(),
         "score": TextEditingController(),
         "outOf": TextEditingController(text: "100"),
-        "credit": TextEditingController(),
+        "credit": TextEditingController(text: "1"),
       });
     });
   }
@@ -39,17 +54,64 @@ class _CGPAPageState extends State<CGPAPage> {
     }
   }
 
-  void calculateCGPA() {
+  Future<void> calculateCGPA() async {
     double totalGradePoints = 0;
     double totalCredits = 0;
 
     List<Subject> subjectsList = [];
 
-    for (var subject in subjects) {
+    for (int i = 0; i < subjects.length; i++) {
+      final subject = subjects[i];
       final name = subject["name"]!.text;
-      final score = double.tryParse(subject["score"]!.text) ?? 0;
-      final outOf = double.tryParse(subject["outOf"]!.text) ?? 100;
-      final credit = double.tryParse(subject["credit"]!.text) ?? 0;
+      final scoreText = subject["score"]!.text.trim();
+      final outOfText = subject["outOf"]!.text.trim();
+      final creditText = subject["credit"]!.text.trim();
+
+      if (scoreText.isEmpty || outOfText.isEmpty || creditText.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Please fill Score, Out Of and Credit for Subject ${i + 1}.',
+            ),
+          ),
+        );
+        return;
+      }
+
+      final score = double.tryParse(scoreText);
+      final outOf = double.tryParse(outOfText);
+      final credit = double.tryParse(creditText);
+
+      if (score == null || outOf == null || credit == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Enter valid numeric values for Subject ${i + 1}.'),
+          ),
+        );
+        return;
+      }
+
+      if (outOf <= 0 || credit <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Out Of and Credit must be greater than 0 for Subject ${i + 1}.',
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (score < 0 || score > outOf) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Score must be between 0 and Out Of for Subject ${i + 1}.',
+            ),
+          ),
+        );
+        return;
+      }
 
       subjectsList.add(
         Subject(
@@ -83,8 +145,18 @@ class _CGPAPageState extends State<CGPAPage> {
       totalCredits += credit;
     }
 
-    final calculatedCGPA =
-        (totalCredits > 0 ? totalGradePoints / totalCredits : 0) as double;
+    if (totalCredits <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please add at least one subject with valid credit.'),
+        ),
+      );
+      return;
+    }
+
+    final calculatedCGPA = totalCredits > 0
+        ? totalGradePoints / totalCredits
+        : 0.0;
 
     setState(() {
       cgpa = calculatedCGPA;
@@ -92,6 +164,7 @@ class _CGPAPageState extends State<CGPAPage> {
 
     // Save to database
     final record = CalculationRecord(
+      id: DateTime.now().millisecondsSinceEpoch,
       calculationType: 'CGPA',
       result: calculatedCGPA,
       subjects: subjectsList,
@@ -99,7 +172,7 @@ class _CGPAPageState extends State<CGPAPage> {
       semesterName: 'Semester ${DateTime.now().month}',
     );
 
-    context.read<CalculationHistoryProvider>().addCalculation(record);
+    await context.read<CalculationHistoryProvider>().addCalculation(record);
 
     // Show success message
     ScaffoldMessenger.of(context).showSnackBar(
@@ -210,17 +283,34 @@ class _CGPAPageState extends State<CGPAPage> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    ShaderMask(
-                      shaderCallback: (bounds) => LinearGradient(
-                        colors: [Colors.white, Colors.white.withAlpha(200)],
-                      ).createShader(bounds),
-                      child: Text(
-                        cgpa.toStringAsFixed(2),
-                        style: const TextStyle(
-                          fontSize: 72,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.white,
-                          letterSpacing: -2,
+                    SizedBox(
+                      width: 160,
+                      height: 160,
+                      child: CustomPaint(
+                        painter: _GaugeArcPainter(value: cgpa, maxValue: 10),
+                        child: Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                cgpa.toStringAsFixed(2),
+                                style: const TextStyle(
+                                  fontSize: 40,
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.white,
+                                  letterSpacing: -1,
+                                ),
+                              ),
+                              Text(
+                                '/ 10',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.white.withAlpha(180),
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -482,4 +572,75 @@ class _CGPAPageState extends State<CGPAPage> {
       ),
     );
   }
+}
+
+class _GaugeArcPainter extends CustomPainter {
+  final double value;
+  final double maxValue;
+
+  const _GaugeArcPainter({required this.value, required this.maxValue});
+
+  static const double _startAngle = 2.5;
+  static const double _totalSweep = 4.6;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width * 0.38;
+
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      _startAngle,
+      _totalSweep,
+      false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 12
+        ..color = Colors.white.withAlpha(40)
+        ..strokeCap = StrokeCap.round,
+    );
+
+    final sweepProgress = (value / maxValue).clamp(0.0, 1.0);
+    if (sweepProgress > 0) {
+      final valueSweep = _totalSweep * sweepProgress;
+
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        _startAngle,
+        valueSweep,
+        false,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 18
+          ..strokeCap = StrokeCap.round
+          ..color = Colors.white.withAlpha(20)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
+      );
+
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        _startAngle,
+        valueSweep,
+        false,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 12
+          ..strokeCap = StrokeCap.round
+          ..shader = SweepGradient(
+            colors: const [
+              Color(0xFF74F7FF),
+              Color(0xFFA29BFE),
+              Color(0xFFFF9FF3),
+              Color(0xFF74F7FF),
+            ],
+            stops: const [0.0, 0.35, 0.7, 1.0],
+            transform: GradientRotation(_startAngle),
+          ).createShader(Rect.fromCircle(center: center, radius: radius)),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_GaugeArcPainter old) =>
+      old.value != value || old.maxValue != maxValue;
 }

@@ -45,7 +45,16 @@ class StudentProvider extends ChangeNotifier {
     String email = '',
     String phone = '',
   }) async {
-    final teacherId = _db.auth.currentUser?.id;
+    final currentUser = _db.auth.currentUser;
+    final role = currentUser?.userMetadata?['role'] as String?;
+    if (role != 'teacher') {
+      debugPrint(
+        'addStudent: only teachers can add students, current role: $role',
+      );
+      return;
+    }
+
+    final teacherId = currentUser?.id;
     if (teacherId == null) return;
 
     final student = Student(

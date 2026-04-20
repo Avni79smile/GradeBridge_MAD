@@ -224,6 +224,14 @@ class _WhatIfAnalysisPageState extends State<WhatIfAnalysisPage> {
       final newCredit = double.tryParse(_newCreditController.text) ?? 0.0;
       final outOf = double.tryParse(_outOfController.text) ?? 100.0;
 
+      if (outOf <= 0 || newCredit <= 0 || currentCredits < 0) {
+        throw Exception('Invalid numeric input');
+      }
+
+      if (newMarks < 0 || newMarks > outOf || currentCGPA < 0) {
+        throw Exception('Invalid range input');
+      }
+
       final predictedGPA = provider.calculatePredictedGPA(
         currentCGPA: currentCGPA,
         currentCredits: currentCredits,
@@ -303,6 +311,10 @@ class _WhatIfAnalysisPageState extends State<WhatIfAnalysisPage> {
     try {
       final targetCGPA = double.tryParse(_targetCGPAController.text) ?? 8.0;
       final outOf = double.tryParse(_outOfController.text) ?? 100.0;
+
+      if (outOf <= 0 || targetCGPA < 0 || targetCGPA > 10) {
+        throw Exception('Invalid numeric input');
+      }
 
       final result = provider.calculateMinMarksNeeded(
         targetGPA: targetCGPA,

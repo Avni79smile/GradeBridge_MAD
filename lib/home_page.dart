@@ -1,12 +1,26 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'cgpa_page.dart';
 import 'percentage_page.dart';
 import 'sgpa_page.dart';
 import 'pages/analytics_page.dart';
-import 'pages/what_if_analysis_page.dart';
+import 'pages/analysis_pdf_history_page.dart';
 import 'pages/settings_page.dart';
+import 'pages/student_analytics_page.dart';
+import 'pages/teacher_subject_analysis_page.dart';
+import 'pages/teacher_analysis_view_page.dart';
+import 'pages/semester_history_page.dart';
+import 'pages/student_cgpa_page.dart';
+import 'pages/student_sgpa_page.dart';
+import 'pages/student_percentage_page.dart';
+import 'models/analysis_pdf_record.dart';
+import 'models/student_grade_model.dart';
+import 'models/student_model.dart';
+import 'services/analysis_pdf_service.dart';
 import 'providers/calculation_history_provider.dart';
+import 'providers/student_provider.dart';
+import 'providers/student_grade_provider.dart';
 import 'providers/theme_provider.dart';
 import 'providers/auth_provider.dart';
 import 'login_page.dart';
@@ -47,9 +61,16 @@ class _HomePageState extends State<HomePage>
 
     _animationController.forward();
 
-    // Load calculations on startup
+    // Load calculations and teacher-assigned grades on startup
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<CalculationHistoryProvider>().loadCalculations();
+      final userEmail = context.read<AuthProvider>().currentUser?.email ?? '';
+      final gradeProvider = context.read<StudentGradeProvider>();
+      // If startup fetch failed (network not ready on cold start), reload now.
+      if (!gradeProvider.isInitialized) {
+        gradeProvider.reloadFromDatabase();
+      }
+      gradeProvider.loadMyTeacherGrades(userEmail);
     });
   }
 
@@ -57,6 +78,21 @@ class _HomePageState extends State<HomePage>
   void dispose() {
     _animationController.dispose();
     super.dispose();
+  }
+
+  List<Color> _avatarColors(String name) {
+    const gradients = [
+      [Color(0xFF00C9A7), Color(0xFF00D9B8)],
+      [Color(0xFF6366F1), Color(0xFF818CF8)],
+      [Color(0xFFEC4899), Color(0xFFF472B6)],
+      [Color(0xFFF59E0B), Color(0xFFFBBF24)],
+      [Color(0xFF3B82F6), Color(0xFF60A5FA)],
+      [Color(0xFFA855F7), Color(0xFFC084FC)],
+      [Color(0xFF10B981), Color(0xFF34D399)],
+      [Color(0xFFEF4444), Color(0xFFF87171)],
+    ];
+    if (name.isEmpty) return gradients[0];
+    return gradients[name.codeUnitAt(0) % gradients.length];
   }
 
   String _getCgpaStanding(double cgpa) {
@@ -106,15 +142,15 @@ class _HomePageState extends State<HomePage>
                   width: 80,
                   height: 80,
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF00C9A7), Color(0xFF00D9B8)],
+                    gradient: LinearGradient(
+                      colors: _avatarColors(user?.name ?? ''),
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
                     borderRadius: BorderRadius.circular(24),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF00C9A7).withAlpha(80),
+                        color: _avatarColors(user?.name ?? '')[0].withAlpha(80),
                         blurRadius: 20,
                         offset: const Offset(0, 8),
                       ),
@@ -151,13 +187,15 @@ class _HomePageState extends State<HomePage>
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF00C9A7).withAlpha(30),
+                    gradient: LinearGradient(
+                      colors: _avatarColors(user?.name ?? ''),
+                    ),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: const Text(
                     'Student',
                     style: TextStyle(
-                      color: Color(0xFF00C9A7),
+                      color: Colors.white,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
@@ -355,6 +393,743 @@ class _HomePageState extends State<HomePage>
                     ),
                   ),
                 ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Student? _resolveCurrentStudent(BuildContext context) {
+    final authUser = context.read<AuthProvider>().currentUser;
+    final gradeProvider = context.read<StudentGradeProvider>();
+    final studentProvider = context.read<StudentProvider>();
+    final normalizedEmail = (authUser?.email ?? '').trim().toLowerCase();
+
+    if (normalizedEmail.isNotEmpty) {
+      for (final student in studentProvider.students) {
+        if (student.email.trim().toLowerCase() == normalizedEmail) {
+          return student;
+        }
+      }
+    }
+
+    final myTeacherGradeData = gradeProvider.myTeacherGradeData;
+    if (myTeacherGradeData == null) {
+      return null;
+    }
+
+    return Student(
+      id: myTeacherGradeData.studentId,
+      batchId: '',
+      name: authUser?.name ?? 'Student',
+      rollNumber: '',
+      email: authUser?.email ?? '',
+      phone: '',
+    );
+  }
+
+  Student? _getCurrentStudent(BuildContext context) {
+    final student = _resolveCurrentStudent(context);
+    if (student != null) return student;
+
+    final authUser = context.read<AuthProvider>().currentUser;
+    if (authUser != null && authUser.role == 'student') {
+      return Student(
+        id: authUser.id,
+        batchId: '',
+        name: authUser.name,
+        rollNumber: '',
+        email: authUser.email,
+        phone: '',
+      );
+    }
+
+    return null;
+  }
+
+  void _showAnalyticsPicker(BuildContext context, Student student) {
+    final isDark = Provider.of<ThemeProvider>(
+      context,
+      listen: false,
+    ).isDarkMode;
+
+    final gradeProvider = Provider.of<StudentGradeProvider>(
+      context,
+      listen: false,
+    );
+    final semesters = gradeProvider.getOrCreateGradeData(student.id).semesters;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white24 : Colors.black12,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Choose Analysis Type',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Select how you want to view performance',
+              style: TextStyle(
+                fontSize: 13,
+                color: isDark ? Colors.white54 : Colors.black45,
+              ),
+            ),
+            const SizedBox(height: 24),
+            _buildPickerOption(
+              context: ctx,
+              isDark: isDark,
+              icon: Icons.stacked_bar_chart_rounded,
+              color: const Color(0xFF6366F1),
+              title: 'Semester-wise Analysis',
+              subtitle:
+                  'SGPA trend, overall grade distribution & all semesters',
+              onTap: () async {
+                Navigator.pop(ctx);
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => StudentAnalyticsPage(student: student),
+                  ),
+                );
+                if (mounted) setState(() {});
+              },
+            ),
+            const SizedBox(height: 12),
+            _buildPickerOption(
+              context: ctx,
+              isDark: isDark,
+              icon: Icons.subject_rounded,
+              color: const Color(0xFFFF6B6B),
+              title: 'Subject-wise Analysis',
+              subtitle:
+                  'Grade points, credits & subject breakdown for this semester',
+              onTap: () {
+                Navigator.pop(ctx);
+                Future.microtask(
+                  () => _showSubjectSemesterPicker(
+                    context,
+                    isDark,
+                    student,
+                    semesters,
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showSubjectSemesterPicker(
+    BuildContext context,
+    bool isDark,
+    Student student,
+    List<StudentSemester> semesters,
+  ) {
+    if (semesters.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No semesters available for subject-wise analysis.'),
+        ),
+      );
+      return;
+    }
+
+    final nav = Navigator.of(context);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => Container(
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white24 : Colors.black12,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Select Semester',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Choose a semester for subject-wise analysis',
+              style: TextStyle(
+                fontSize: 13,
+                color: isDark ? Colors.white54 : Colors.black45,
+              ),
+            ),
+            const SizedBox(height: 20),
+            ...semesters.asMap().entries.map((entry) {
+              final idx = entry.key;
+              final sem = entry.value;
+              final semName = sem.semesterName.isNotEmpty
+                  ? sem.semesterName
+                  : 'Semester ${idx + 1}';
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Material(
+                  color: Colors.transparent,
+                  borderRadius: BorderRadius.circular(14),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: () async {
+                      Navigator.pop(ctx);
+                      await nav.push(
+                        MaterialPageRoute(
+                          builder: (_) => TeacherSubjectAnalysisPage(
+                            student: student,
+                            semester: sem,
+                            semesterIndex: idx + 1,
+                            onSwitchToSemesterWise: () => nav.push(
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    StudentAnalyticsPage(student: student),
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                      if (mounted) setState(() {});
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: isDark
+                              ? Colors.white12
+                              : const Color(0xFFE2E8F0),
+                          width: 1.5,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFF6B6B).withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              'S${idx + 1}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFFFF6B6B),
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  semName,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                    color: isDark
+                                        ? Colors.white
+                                        : Colors.black87,
+                                  ),
+                                ),
+                                Text(
+                                  '${sem.subjects.length} subjects  •  ${sem.totalCredits} credits',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: isDark
+                                        ? Colors.white54
+                                        : Colors.black45,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(
+                            Icons.arrow_forward_ios_rounded,
+                            size: 14,
+                            color: isDark ? Colors.white38 : Colors.black26,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPickerOption({
+    required BuildContext context,
+    required bool isDark,
+    required IconData icon,
+    required Color color,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: isDark ? Colors.white12 : const Color(0xFFE2E8F0),
+              width: 1.5,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: color, size: 26),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                        color: isDark ? Colors.white : Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isDark ? Colors.white54 : Colors.black45,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 16,
+                color: isDark ? Colors.white38 : Colors.black26,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTeacherStyleAnalyticsCard(Student student) {
+    return GestureDetector(
+      onTap: () => _showAnalyticsPicker(context, student),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFFFF6B6B), Color(0xFFFF8E8E)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFFFF6B6B).withAlpha(80),
+              blurRadius: 20,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white.withAlpha(40),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Icon(
+                Icons.analytics_rounded,
+                color: Colors.white,
+                size: 28,
+              ),
+            ),
+            const SizedBox(width: 18),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Analytics',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    'Performance insights\nand progress charts',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 13,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white.withAlpha(30),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.arrow_forward_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPdfHistoryCard(Student student) {
+    return FutureBuilder<List<AnalysisPdfRecord>>(
+      future: AnalysisPdfService.getHistory(studentId: student.id),
+      builder: (context, snapshot) {
+        final history = snapshot.data ?? const <AnalysisPdfRecord>[];
+        final count = history.length;
+        final latest = count > 0 ? history.first : null;
+
+        return GestureDetector(
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => AnalysisPdfHistoryPage(student: student),
+            ),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF0EA5E9), Color(0xFF2563EB)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF2563EB).withAlpha(75),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withAlpha(35),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.picture_as_pdf_rounded,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'PDF History',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        count == 0
+                            ? 'No analysis PDFs saved yet'
+                            : '$count saved report${count == 1 ? '' : 's'}',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                        ),
+                      ),
+                      if (latest != null)
+                        Text(
+                          'Latest: ${DateFormat('dd MMM, hh:mm a').format(latest.createdAt)}',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  color: Colors.white,
+                  size: 18,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showThemePicker(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => Consumer<ThemeProvider>(
+        builder: (context, themeProvider, _) {
+          final isDark = themeProvider.isDarkMode;
+          return Container(
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
+            ),
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white24 : Colors.black12,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'Choose Theme',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Personalize your dashboard',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isDark ? Colors.white54 : Colors.black45,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? Colors.white.withAlpha(10)
+                        : Colors.grey.withAlpha(20),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF6366F1).withAlpha(30),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(
+                          isDark
+                              ? Icons.dark_mode_rounded
+                              : Icons.light_mode_rounded,
+                          color: const Color(0xFF6366F1),
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          isDark ? 'Dark Mode' : 'Light Mode',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: isDark ? Colors.white : Colors.black87,
+                          ),
+                        ),
+                      ),
+                      Switch(
+                        value: isDark,
+                        onChanged: (_) => themeProvider.toggleTheme(),
+                        activeColor: const Color(0xFF6366F1),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'ACCENT COLOR',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.4,
+                      color: isDark ? Colors.white54 : Colors.black38,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                GridView.count(
+                  crossAxisCount: 3,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                  childAspectRatio: 1.7,
+                  children: AppThemeColor.values.map((color) {
+                    final isSelected = themeProvider.teacherThemeColor == color;
+                    final grads = ThemeProvider.lightGradients[color]!;
+                    final name = ThemeProvider.themeColorNames[color]!;
+                    return GestureDetector(
+                      onTap: () => themeProvider.setTeacherThemeColor(color),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [grads[0], grads[2]],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: isSelected
+                                ? Colors.white
+                                : Colors.transparent,
+                            width: 3,
+                          ),
+                          boxShadow: isSelected
+                              ? [
+                                  BoxShadow(
+                                    color: grads[1].withAlpha(120),
+                                    blurRadius: 12,
+                                    spreadRadius: 2,
+                                  ),
+                                ]
+                              : [],
+                        ),
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Text(
+                              name,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            if (isSelected)
+                              Positioned(
+                                top: 5,
+                                right: 5,
+                                child: Container(
+                                  width: 18,
+                                  height: 18,
+                                  decoration: const BoxDecoration(
+                                    color: Colors.white,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.check_rounded,
+                                    size: 12,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 8),
               ],
             ),
           );
@@ -658,17 +1433,9 @@ class _HomePageState extends State<HomePage>
   Widget build(BuildContext context) {
     return Consumer<ThemeProvider>(
       builder: (context, themeProvider, _) {
-        final List<Color> gradientColors = themeProvider.isDarkMode
-            ? [
-                const Color(0xFF1E3A8A), // Dark blue
-                const Color(0xFF2563EB), // Medium blue
-                const Color(0xFF3B82F6), // Light blue
-              ]
-            : [
-                const Color(0xFFEFF6FF), // Very light blue
-                const Color(0xFFDEEDFF), // Light blue
-                const Color(0xFFBFDBFE), // Lighter blue
-              ];
+        final gradientColors = themeProvider.teacherGradientColors;
+        final cardPalette =
+            ThemeProvider.lightGradients[themeProvider.teacherThemeColor]!;
 
         return Scaffold(
           body: Container(
@@ -698,7 +1465,7 @@ class _HomePageState extends State<HomePage>
                           Icons.menu_rounded,
                           color: Colors.white,
                         ),
-                        onPressed: () {},
+                        onPressed: () => _showProfileSheet(context),
                       ),
                       Expanded(
                         child: Consumer<AuthProvider>(
@@ -734,14 +1501,33 @@ class _HomePageState extends State<HomePage>
                       ),
                       Consumer<ThemeProvider>(
                         builder: (context, themeProvider, _) {
-                          return IconButton(
-                            icon: Icon(
-                              themeProvider.isDarkMode
-                                  ? Icons.light_mode_rounded
-                                  : Icons.dark_mode_rounded,
-                              color: Colors.white,
+                          return GestureDetector(
+                            onTap: () => _showThemePicker(context),
+                            child: Container(
+                              width: 36,
+                              height: 36,
+                              margin: const EdgeInsets.only(right: 4),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: ThemeProvider
+                                      .lightGradients[themeProvider
+                                          .teacherThemeColor]!
+                                      .sublist(0, 2),
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: Colors.white.withAlpha(120),
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: const Icon(
+                                Icons.palette_rounded,
+                                color: Colors.white,
+                                size: 18,
+                              ),
                             ),
-                            onPressed: () => themeProvider.toggleTheme(),
                           );
                         },
                       ),
@@ -759,11 +1545,10 @@ class _HomePageState extends State<HomePage>
                               height: 38,
                               margin: const EdgeInsets.only(left: 8),
                               decoration: BoxDecoration(
-                                gradient: const LinearGradient(
-                                  colors: [
-                                    Color(0xFF00C9A7),
-                                    Color(0xFF00D9B8),
-                                  ],
+                                gradient: LinearGradient(
+                                  colors: _avatarColors(
+                                    authProvider.currentUser?.name ?? '',
+                                  ),
                                   begin: Alignment.topLeft,
                                   end: Alignment.bottomRight,
                                 ),
@@ -772,6 +1557,15 @@ class _HomePageState extends State<HomePage>
                                   color: Colors.white.withAlpha(100),
                                   width: 2,
                                 ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: (_avatarColors(
+                                      authProvider.currentUser?.name ?? '',
+                                    )[0]).withAlpha(80),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 3),
+                                  ),
+                                ],
                               ),
                               child: Center(
                                 child: Text(
@@ -787,13 +1581,7 @@ class _HomePageState extends State<HomePage>
                           );
                         },
                       ),
-                      IconButton(
-                        icon: const Icon(
-                          Icons.picture_as_pdf_rounded,
-                          color: Colors.white,
-                        ),
-                        onPressed: () {},
-                      ),
+                      const SizedBox(width: 4),
                     ],
                   ),
                 ),
@@ -802,67 +1590,351 @@ class _HomePageState extends State<HomePage>
                   padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
                   sliver: SliverList(
                     delegate: SliverChildListDelegate([
-                      // Top stats cards
-                      Row(
-                        children: [
-                          // CGPA Card
-                          Expanded(
-                            child: Consumer<CalculationHistoryProvider>(
-                              builder: (context, provider, _) {
-                                final cgpaCalcs = provider
-                                    .getCalculationsByType('CGPA');
-                                final latestCgpa = cgpaCalcs.isNotEmpty
-                                    ? cgpaCalcs.last.result
-                                    : null;
-                                final cgpaStr = latestCgpa != null
-                                    ? latestCgpa.toStringAsFixed(2)
-                                    : '--';
-                                final subtitle = latestCgpa != null
-                                    ? _getCgpaStanding(latestCgpa)
-                                    : 'No calculations yet';
-                                return _buildTopCard(
-                                  title: 'CGPA',
-                                  value: cgpaStr,
-                                  subtitle: subtitle,
-                                  icon: Icons.school_rounded,
-                                  color: const Color(0xFF3B82F6),
-                                  index: 0,
-                                  onTap: () => Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => const CGPAPage(),
+                      // Top stats cards (student view uses teacher grade data when available)
+                      Consumer<StudentGradeProvider>(
+                        builder: (context, gradeProvider, _) {
+                          final student = _getCurrentStudent(context);
+                          final gradeData = student != null
+                              ? gradeProvider.getOrCreateGradeData(student.id)
+                              : null;
+                          final cgpa = gradeData?.cgpa ?? 0.0;
+                          final cgpaStr = cgpa > 0
+                              ? cgpa.toStringAsFixed(2)
+                              : '--';
+                          final cgpaSubtitle = cgpa > 0
+                              ? _getCgpaStanding(cgpa)
+                              : 'No grades yet';
+
+                          final latestSgpa =
+                              gradeData?.semesters.isNotEmpty == true
+                              ? gradeData!.semesters
+                                    .reduce(
+                                      (a, b) => a.createdAt.isAfter(b.createdAt)
+                                          ? a
+                                          : b,
+                                    )
+                                    .sgpa
+                              : 0.0;
+                          final sgpaStr = latestSgpa > 0
+                              ? latestSgpa.toStringAsFixed(2)
+                              : '--';
+                          final sgpaSubtitle = latestSgpa > 0
+                              ? 'Latest semester'
+                              : 'No semesters yet';
+
+                          final percentage = cgpa > 0
+                              ? (cgpa * 9.5).clamp(0, 100)
+                              : 0.0;
+                          final percentageStr = cgpa > 0
+                              ? percentage.toStringAsFixed(1)
+                              : '--';
+                          final percentageSubtitle = cgpa > 0
+                              ? 'Estimated from CGPA'
+                              : 'Calculate CGPA first';
+
+                          return Column(
+                            children: [
+                              Row(
+                                children: [
+                                  // CGPA Card
+                                  Expanded(
+                                    child: _buildTopCard(
+                                      title: 'CGPA',
+                                      value: cgpaStr,
+                                      subtitle: cgpaSubtitle,
+                                      icon: Icons.school_rounded,
+                                      color: cardPalette[2],
+                                      index: 0,
+                                      onTap: () {
+                                        if (student != null) {
+                                          _showCgpaSemesterPicker(
+                                            context,
+                                            student,
+                                          );
+                                        } else {
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) => const CGPAPage(),
+                                            ),
+                                          );
+                                        }
+                                      },
                                     ),
                                   ),
-                                );
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          // History Card
-                          Expanded(
-                            child: Consumer<CalculationHistoryProvider>(
-                              builder: (context, provider, _) {
-                                return _buildTopCard(
-                                  title: 'History',
-                                  value: '${provider.calculations.length}',
-                                  subtitle: 'Calculations Saved',
-                                  icon: Icons.history_rounded,
-                                  color: const Color(0xFF10B981),
-                                  index: 1,
-                                  onTap: () => Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => const AnalyticsPage(),
+                                  const SizedBox(width: 12),
+                                  // SGPA Card
+                                  Expanded(
+                                    child: _buildTopCard(
+                                      title: 'SGPA',
+                                      value: sgpaStr,
+                                      subtitle: sgpaSubtitle,
+                                      icon: Icons.bar_chart_rounded,
+                                      color: cardPalette[1],
+                                      index: 1,
+                                      onTap: () {
+                                        if (student != null) {
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) => StudentSgpaPage(
+                                                student: student,
+                                              ),
+                                            ),
+                                          );
+                                        } else {
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) => const SGPAPage(),
+                                            ),
+                                          );
+                                        }
+                                      },
                                     ),
                                   ),
-                                );
-                              },
-                            ),
-                          ),
-                        ],
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  // Percentage Card
+                                  Expanded(
+                                    child: _buildTopCard(
+                                      title: 'Percentage',
+                                      value: percentageStr,
+                                      subtitle: percentageSubtitle,
+                                      icon: Icons.percent_rounded,
+                                      color: cardPalette[0],
+                                      index: 2,
+                                      onTap: () {
+                                        if (student != null) {
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) =>
+                                                  StudentPercentagePage(
+                                                    student: student,
+                                                  ),
+                                            ),
+                                          );
+                                        } else {
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) =>
+                                                  const PercentagePage(),
+                                            ),
+                                          );
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  // History Card
+                                  Expanded(
+                                    child: Builder(
+                                      builder: (context) {
+                                        final semesterCount =
+                                            gradeData?.semesters.length ?? 0;
+                                        final latestSemester =
+                                            gradeData?.semesters.isNotEmpty ==
+                                                true
+                                            ? (gradeData!.semesters.toList()
+                                                    ..sort(
+                                                      (a, b) =>
+                                                          b.createdAt.compareTo(
+                                                            a.createdAt,
+                                                          ),
+                                                    ))
+                                                  .first
+                                            : null;
+
+                                        final historySubtitle =
+                                            latestSemester == null
+                                            ? 'No semester history yet'
+                                            : '${latestSemester.semesterName.isNotEmpty ? latestSemester.semesterName : 'Semester'} • SGPA ${latestSemester.sgpa.toStringAsFixed(2)}';
+
+                                        return _buildTopCard(
+                                          title: 'History',
+                                          value: '$semesterCount',
+                                          subtitle: historySubtitle,
+                                          icon: Icons.history_rounded,
+                                          color: cardPalette[1],
+                                          index: 3,
+                                          onTap: () {
+                                            if (student != null) {
+                                              Navigator.push(
+                                                context,
+                                                MaterialPageRoute(
+                                                  builder: (_) =>
+                                                      SemesterHistoryPage(
+                                                        student: student,
+                                                      ),
+                                                ),
+                                              );
+                                              return;
+                                            }
+
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (_) =>
+                                                    const AnalyticsPage(),
+                                              ),
+                                            );
+                                          },
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          );
+                        },
                       ),
                       const SizedBox(height: 20),
-                      // Calculator cards grid - 2 columns
+                      // ── Teacher's Analysis banner ──────────────────────
+                      Consumer<StudentGradeProvider>(
+                        builder: (context, gradeProvider, _) {
+                          final teacherData = gradeProvider.myTeacherGradeData;
+                          final isLoading =
+                              gradeProvider.isLoadingTeacherGrades;
+
+                          if (isLoading) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8),
+                              child: LinearProgressIndicator(
+                                color: Color(0xFF6C63FF),
+                                backgroundColor: Colors.white24,
+                              ),
+                            );
+                          }
+
+                          if (teacherData == null) {
+                            return const SizedBox.shrink();
+                          }
+
+                          final cgpa = teacherData.cgpa;
+                          final semCount = teacherData.semesters.length;
+                          final gradeLabel = cgpa >= 9.0
+                              ? 'Outstanding'
+                              : cgpa >= 8.0
+                              ? 'Excellent'
+                              : cgpa >= 7.0
+                              ? 'Very Good'
+                              : cgpa >= 6.0
+                              ? 'Good'
+                              : cgpa >= 5.0
+                              ? 'Average'
+                              : 'Pass';
+
+                          return GestureDetector(
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => TeacherAnalysisViewPage(
+                                  gradeData: teacherData,
+                                ),
+                              ),
+                            ),
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(18),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [cardPalette[0], cardPalette[2]],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                                borderRadius: BorderRadius.circular(20),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: cardPalette[1].withAlpha(85),
+                                    blurRadius: 20,
+                                    offset: const Offset(0, 8),
+                                  ),
+                                ],
+                                border: Border.all(
+                                  color: Colors.white.withAlpha(60),
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withAlpha(40),
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    child: const Icon(
+                                      Icons.school_rounded,
+                                      color: Colors.white,
+                                      size: 28,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          "Teacher's Analysis",
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          '$semCount Semester(s)  •  $gradeLabel',
+                                          style: const TextStyle(
+                                            color: Colors.white70,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Text(
+                                        cgpa.toStringAsFixed(2),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 28,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      const Text(
+                                        'CGPA',
+                                        style: TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const Icon(
+                                    Icons.arrow_forward_ios_rounded,
+                                    color: Colors.white70,
+                                    size: 16,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      // ── End Teacher's Analysis ─────────────────────────
+                      const SizedBox(height: 20),
+                      // Student shortcut cards: Analytics + PDF History
                       SizedBox(
                         height: 200,
                         child: Row(
@@ -870,73 +1942,61 @@ class _HomePageState extends State<HomePage>
                             Expanded(
                               child: _buildAnimatedCard(
                                 2,
-                                'Percentage',
-                                'Calculate',
-                                Icons.percent_rounded,
-                                const Color(0xFFF59E0B),
-                                () => Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => const PercentagePage(),
-                                  ),
-                                ),
+                                'Analytics',
+                                'Insights',
+                                Icons.analytics_rounded,
+                                cardPalette.length > 3
+                                    ? cardPalette[3]
+                                    : cardPalette[0],
+                                () {
+                                  final student = _getCurrentStudent(context);
+                                  if (student != null) {
+                                    _showAnalyticsPicker(context, student);
+                                  } else {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Student context missing for analytics',
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                },
                               ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
                               child: _buildAnimatedCard(
                                 3,
-                                'SGPA',
-                                'Calculate',
-                                Icons.school_rounded,
-                                const Color(0xFFEC4899),
-                                () => Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => const SGPAPage(),
-                                  ),
-                                ),
+                                'PDF History',
+                                'Reports',
+                                Icons.picture_as_pdf_rounded,
+                                cardPalette[0],
+                                () {
+                                  final student = _getCurrentStudent(context);
+                                  if (student != null) {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => AnalysisPdfHistoryPage(
+                                          student: student,
+                                        ),
+                                      ),
+                                    );
+                                  } else {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Student context missing for PDF history',
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                },
                               ),
                             ),
                           ],
                         ),
-                      ),
-                      const SizedBox(height: 20),
-                      // Analytics and What-If cards
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildAnimatedCard(
-                              4,
-                              'Analytics',
-                              'Performance Stats',
-                              Icons.trending_up_rounded,
-                              const Color(0xFF06B6D4),
-                              () => Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const AnalyticsPage(),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _buildAnimatedCard(
-                              5,
-                              'What-If',
-                              'GPA Predictor',
-                              Icons.help_outline_rounded,
-                              const Color(0xFFD946EF),
-                              () => Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const WhatIfAnalysisPage(),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
                       ),
                       const SizedBox(height: 20),
                       // Settings card
@@ -945,7 +2005,7 @@ class _HomePageState extends State<HomePage>
                         'Settings',
                         'Customize App',
                         Icons.settings_rounded,
-                        const Color(0xFF64748B),
+                        cardPalette[1],
                         () => Navigator.push(
                           context,
                           MaterialPageRoute(
@@ -953,52 +2013,6 @@ class _HomePageState extends State<HomePage>
                           ),
                         ),
                         isFullWidth: true,
-                      ),
-                      const SizedBox(height: 20),
-                      // Bottom action buttons
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () {},
-                              icon: const Icon(Icons.picture_as_pdf_rounded),
-                              label: const Text('Export to PDF'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.white.withAlpha(200),
-                                foregroundColor: const Color(0xFF1E3A8A),
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 12,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () => Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const WhatIfAnalysisPage(),
-                                ),
-                              ),
-                              icon: const Icon(Icons.calculate_rounded),
-                              label: const Text('What-If'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF10B981),
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 12,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
                       ),
                       const SizedBox(height: 20),
                     ]),
@@ -1009,6 +2023,83 @@ class _HomePageState extends State<HomePage>
           ),
         );
       },
+    );
+  }
+
+  void _showCgpaSemesterPicker(BuildContext context, Student student) {
+    final provider = context.read<StudentGradeProvider>();
+    final gradeData = provider.getOrCreateGradeData(student.id);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => Container(
+        decoration: BoxDecoration(
+          color: Theme.of(ctx).scaffoldBackgroundColor,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Choose Semester',
+              style: Theme.of(
+                ctx,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              gradeData.semesters.isEmpty
+                  ? 'No semesters available yet. Add a new semester first.'
+                  : 'Add a new semester or edit an existing one for CGPA update.',
+              style: Theme.of(ctx).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.add_circle_outline),
+              title: const Text('Add New Semester'),
+              onTap: () {
+                Navigator.pop(ctx);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => StudentCgpaPage(student: student),
+                  ),
+                );
+              },
+            ),
+            if (gradeData.semesters.isNotEmpty) ...[
+              const Divider(),
+              ...gradeData.semesters.map((sem) {
+                final displayName = sem.semesterName.isNotEmpty
+                    ? sem.semesterName
+                    : 'Semester ${gradeData.semesters.indexOf(sem) + 1}';
+                return ListTile(
+                  leading: const Icon(Icons.school_outlined),
+                  title: Text(displayName),
+                  subtitle: Text('SGPA: ${sem.sgpa.toStringAsFixed(2)}'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => StudentCgpaPage(
+                          student: student,
+                          initialSemesterName: sem.semesterName,
+                          existingSemesterId: sem.id,
+                        ),
+                      ),
+                    );
+                  },
+                );
+              }).toList(),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
